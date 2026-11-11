@@ -86,6 +86,7 @@
   .panel.resumo { font-weight:700; padding:10px 14px; margin-bottom:12px; }
   .panel.resumo.ganha { background:rgba(22,163,74,.16); border-color:var(--ok); }
   .panel.resumo.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); }
+  .tag.cold { background:#dbeafe; color:#1e40af; }
   .tag.hot { background:var(--bad); color:#fff; } .tag.warm { background:var(--warn); color:#fff; } .tag.rep { background:var(--brand); color:#fff; }
   .chips { display:flex; gap:6px; flex-wrap:wrap; } .chips .tag { margin:0; }
   .qa { padding:8px 0; border-bottom:1px solid var(--line); } .qa:last-child { border:0; }
@@ -274,7 +275,7 @@ const COR = {
   agendada: ['#ea580c', '#ffe9dc', '📅'], realizada: ['#0d9488', '#d9f5f1', '🤝'], proposta: ['#db2777', '#ffe4f1', '📨'],
   followup: ['#d97706', '#fff1d6', '⏰'], fechado: ['#16a34a', '#dcf7e5', '🏆'], perdido: ['#dc2626', '#fde4e4', '💔'],
 };
-const TEMP = { quente: ['🔥 Quente', 'hot'], morno: ['🌤️ Morno', 'warm'] };
+const TEMP = { quente: ['🔥 Quente', 'hot'], morno: ['🌤️ Morno', 'warm'], frio: ['🧊 Frio', 'cold'] };
 const app = $('#app');
 
 // ---------- login ----------
@@ -326,7 +327,7 @@ async function abrirApp() {
   const busca = h('input', { class: 'search', type: 'search', placeholder: 'Buscar nome, e-mail ou telefone', 'aria-label': 'Buscar',
     oninput: (e) => { S.q = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } });
   const filtro = h('select', { class: 'filtro', 'aria-label': 'Filtrar por temperatura', onchange: (e) => { S.temp = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } },
-    h('option', { value: '' }, 'Todas as temperaturas'), h('option', { value: 'quente' }, '🔥 Só quentes'), h('option', { value: 'morno' }, 'Só mornos'));
+    h('option', { value: '' }, 'Todas as temperaturas'), h('option', { value: 'quente' }, '🔥 Só quentes'), h('option', { value: 'morno' }, 'Só mornos'), h('option', { value: 'frio' }, '🧊 Só frios'));
   const situacao = h('select', { class: 'filtro', 'aria-label': 'Filtrar negociações', onchange: (e) => {
     S.sit = e.target.value; try { localStorage.setItem('crm_sit', S.sit); } catch { /* ok */ }
     S.view = 'funil'; desenhar(); } },
