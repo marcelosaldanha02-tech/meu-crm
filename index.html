@@ -86,6 +86,8 @@
   .panel.resumo { font-weight:700; padding:10px 14px; margin-bottom:12px; }
   .panel.resumo.ganha { background:rgba(22,163,74,.16); border-color:var(--ok); }
   .panel.resumo.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); }
+  .tag.resp { background:#eef2ff; color:#3730a3; }
+  .btn.wa { background:#25d366; color:#fff; } .btn.wa:hover { background:#1ebe5b; }
   .tag.cold { background:#dbeafe; color:#1e40af; }
   .tag.hot { background:var(--bad); color:#fff; } .tag.warm { background:var(--warn); color:#fff; } .tag.rep { background:var(--brand); color:#fff; }
   .chips { display:flex; gap:6px; flex-wrap:wrap; } .chips .tag { margin:0; }
@@ -268,7 +270,7 @@ function celebrar() {
 // ---------- estado ----------
 const SITUACOES = [['andamento', 'Em andamento'], ['todas', 'Todas (ganhas e perdidas)'], ['ganhas', 'Ganhas'], ['perdidas', 'Perdidas']];
 let sitSalva = 'andamento'; try { sitSalva = localStorage.getItem('crm_sit') || 'andamento'; } catch { /* sem armazenamento: usa o padrão */ }
-const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
+const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', resp: '', equipe: [], sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
 // Cada etapa tem a sua cor e um emoji: [cor forte, cor suave de fundo, emoji]
 const COR = {
   novo: ['#2f5bea', '#e6edff', '🆕'], contato: ['#0891b2', '#dcf5fa', '💬'], conversa: ['#7c3aed', '#efe7ff', '🗣️'],
@@ -311,12 +313,14 @@ async function carregar() {
   S.cfg = Object.fromEntries(cfg.map((c) => [c.chave, c.valor]));
   S.ativ = await run(sb.from("atividades").select("*").is("feito_em", null).order("vence_em"));
   S.atrasados = fus.filter((f) => f.data_prevista <= hoje()).length + S.ativ.filter((x) => x.vence_em <= hoje()).length;
+  // equipe (tolerante: se o SQL ainda não foi rodado, segue sem equipe)
+  { const { data } = await sb.from('equipe').select('*').order('nome'); S.equipe = data || []; }
   const et = await run(sb.from('etiquetas').select('lead_id,texto').order('criado_em'));
   S.etiq = {}; for (const e of et) (S.etiq[e.lead_id] ||= []).push(e.texto);
 }
 const leadsFiltrados = () => {
   const q = semAcento(S.q).trim(), qd = q.replace(/\D/g, '');
-  return S.leads.filter((l) => (!S.temp || l.temperatura === S.temp) &&
+  return S.leads.filter((l) => (!S.temp || l.temperatura === S.temp) && (!S.resp || (S.resp === '0' ? !l.responsavel_id : String(l.responsavel_id) === S.resp)) &&
     (!q || semAcento(l.nome).includes(q) || semAcento(l.email).includes(q) || (qd && l.telefone.includes(qd))));
 };
 
@@ -332,10 +336,11 @@ async function abrirApp() {
     S.sit = e.target.value; try { localStorage.setItem('crm_sit', S.sit); } catch { /* ok */ }
     S.view = 'funil'; desenhar(); } },
     ...SITUACOES.map(([k, n]) => h('option', { value: k, selected: k === S.sit }, 'Negociações: ' + n)));
+  const filtroResp = h('select', { class: 'filtro', id: 'filtroResp', hidden: true, 'aria-label': 'Filtrar por responsável', onchange: (e) => { S.resp = e.target.value; desenhar(); } });
   const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['metas', 'Metas'], ['config', 'Config']].map(([id, nome]) =>
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
-    h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, situacao, filtro, h('div', { class: 'spacer' }),
+    h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, situacao, filtro, filtroResp, h('div', { class: 'spacer' }),
       h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
       h('button', { class: 'btn ghost', onclick: () => sb.auth.signOut() }, 'Sair')),
     h('main', { id: 'view' }));
@@ -343,7 +348,17 @@ async function abrirApp() {
   // ao voltar para a aba depois de um tempo (ex.: virou o dia), roda a regra de novo
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#view')) aplicarRegraFollowup().then(recarregar); });
 }
+function montarFiltroResp() {
+  const s = $('#filtroResp'); if (!s) return;
+  const ativos = (S.equipe || []).filter((m) => m.ativo);
+  s.hidden = ativos.length < 2;
+  if (s.hidden) { S.resp = ''; return; }
+  s.replaceChildren(h('option', { value: '' }, 'Todos os responsáveis'), h('option', { value: '0' }, 'Sem responsável'),
+    ...ativos.map((m) => h('option', { value: String(m.id) }, '👤 ' + m.nome)));
+  s.value = S.resp;
+}
 async function desenhar() {
+  montarFiltroResp();
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.view));
   const b = $('#badge'); if (b) { b.textContent = S.atrasados; b.hidden = !S.atrasados; }
   const v = $('#view'); if (!v) return;
@@ -397,15 +412,15 @@ function cartao(l, t) {
   else if (l.situacao === 'perdida') tag = h('span', { class: 'tag lost' }, '💔 ' + (l.motivo_perda || 'Perdida'));
   else if (fu) tag = h('span', { class: 'tag ' + (fu.data_prevista < t ? 'late' : fu.data_prevista === t ? 'today' : '') }, `Follow-up ${fu.numero} • ${fmtDay(fu.data_prevista).slice(0, 5)}`);
   else if (l.etapa === 'agendada' && l.reuniao_em) tag = h('span', { class: 'tag' }, fmtDT(l.reuniao_em));
-  const temp = TEMP[l.temperatura], rep = (S.etiq[l.id] || []).length;
+  const temp = TEMP[l.temperatura], rep = (S.etiq[l.id] || []).length, quem = (S.equipe || []).find((m) => m.id === l.responsavel_id);
   const acoesFu = (l.etapa === 'followup' && fu && l.situacao === 'andamento') ? cartaoAcoesFollowup(l, fu) : null;
   const el = h('div', { class: 'lead' + (l.situacao === 'ganha' ? ' ganha' : l.situacao === 'perdida' ? ' perdida' : ''), draggable: 'true', onclick: () => abrirLead(l.id) },
     h('div', { class: 'topo' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, (l.nome.trim()[0] || '?').toUpperCase()),
       h('div', { style: 'min-width:0' }, h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email))),
-    (temp || rep || tag) ? h('div', { class: 'chips', style: 'margin-top:4px' },
+    (temp || rep || tag || quem) ? h('div', { class: 'chips', style: 'margin-top:4px' },
       temp ? h('span', { class: 'tag ' + temp[1] }, temp[0]) : null,
       rep ? h('span', { class: 'tag rep', title: S.etiq[l.id].join('\n') }, `↻ Preencheu de novo${rep > 1 ? ' ×' + rep : ''}`) : null,
-      tag) : null,
+      tag, quem ? h('span', { class: 'tag resp' }, '👤 ' + quem.nome) : null) : null,
     acoesFu);
   el.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', l.id));
   return el;
@@ -487,11 +502,31 @@ async function abrirLead(id) {
   const obs = h('textarea', { maxlength: 5000 }, lead.observacao || '');
   const estagio = h('select', {}, ...ETAPAS.map(([e, n]) => h('option', { value: e, selected: e === lead.etapa }, n)));
   const nota = h('textarea', { placeholder: 'Registre o que conversaram...', maxlength: 5000 });
+  // temperatura: automática (pelo formulário) ou escolhida por você (o formulário não sobrescreve)
+  const tempAtual = lead.temperatura_manual ? (lead.temperatura || 'sem') : 'auto';
+  const rotAuto = lead.temperatura_manual ? 'Automática (pelo formulário)' : 'Automática (' + (TEMP[lead.temperatura] ? TEMP[lead.temperatura][0] : 'sem classificação') + ')';
+  const selTemp = h('select', {}, ...[['auto', rotAuto], ['quente', '🔥 Quente'], ['morno', '🌤️ Morno'], ['frio', '🧊 Frio'], ['sem', 'Sem classificação']]
+    .map(([v, r]) => h('option', { value: v, selected: v === tempAtual }, r)));
+  // responsável: pessoas ativas da equipe (mais a atual, se já estiver inativa)
+  const selResp = h('select', {}, h('option', { value: '' }, 'Sem responsável'),
+    ...(S.equipe || []).filter((m) => m.ativo || m.id === lead.responsavel_id)
+      .map((m) => h('option', { value: String(m.id), selected: m.id === lead.responsavel_id }, m.nome + (m.ativo ? '' : ' (inativo)'))));
 
+  // Só envia temperatura/responsável se você mexeu neles (assim o card salva normalmente em qualquer situação)
+  const camposNovos = () => {
+    const extra = {};
+    if (selTemp.value !== tempAtual) {
+      if (selTemp.value === 'auto') extra.temperatura_manual = false;
+      else { extra.temperatura = selTemp.value === 'sem' ? '' : selTemp.value; extra.temperatura_manual = true; }
+    }
+    if ((selResp.value || '') !== String(lead.responsavel_id ?? '')) extra.responsavel_id = selResp.value ? Number(selResp.value) : null;
+    return extra;
+  };
   // Salva o que está digitado antes de qualquer ação que recarrega o card (nada se perde)
   const guardar = () => run(sb.from('leads').update({
     nome: nome.value.trim().slice(0, 200) || 'Sem nome', telefone: tel.value.slice(0, 20), email: mail.value.trim().slice(0, 254),
     valor_venda: Number(valor.value) || 0, observacao: obs.value.slice(0, 5000),
+    ...camposNovos(),
   }).eq('id', id), 'Não foi possível salvar.');
   const acao = (fn) => async () => { await guardar(); await fn(); abrirLead(id); };
 
@@ -568,6 +603,9 @@ async function abrirLead(id) {
       h('h2', {}, lead.nome, ' ', h('span', { class: 'tag' }, ROTULO[lead.etapa]), ' ',
         lead.situacao !== 'andamento' ? h('span', { class: 'tag ' + (lead.situacao === 'ganha' ? 'won' : 'lost') }, lead.situacao === 'ganha' ? '🏆 Negociação ganha' : '💔 Negociação perdida') : null),
       h('div', { class: 'actions' },
+        lead.telefone
+          ? h('a', { class: 'btn wa', href: waLink(lead.telefone), target: '_blank', rel: 'noopener noreferrer', title: 'Abrir a conversa no WhatsApp' }, '💬 WhatsApp')
+          : h('button', { class: 'btn ghost', type: 'button', disabled: true, title: 'Este lead não tem telefone' }, '💬 WhatsApp'),
         lead.situacao === 'andamento' ? [
           h('button', { class: 'btn ok', type: 'button', onclick: () => encerrarCard('ganha') }, 'Ganho'),
           h('button', { class: 'btn bad', type: 'button', onclick: () => encerrarCard('perdida') }, 'Perdido'),
@@ -576,6 +614,8 @@ async function abrirLead(id) {
       h('div', { class: 'col2' },
         h('div', { class: 'grid2' }, campo('Valor da venda (R$)', valor), campo('Estágio', estagio)),
         h('small', { style: 'color:var(--muted);margin-top:-8px' }, 'O valor só entra no faturamento quando você clica em Ganho.'),
+        h('div', { class: 'grid2' }, campo('Temperatura', selTemp), campo('Responsável', selResp)),
+        (S.equipe || []).filter((m) => m.ativo).length === 0 ? h('small', { style: 'color:var(--muted);margin-top:-8px' }, 'Cadastre as pessoas da equipe em Config para escolher o responsável.') : null,
         (lead.situacao === 'perdida' && lead.motivo_perda) ? h('div', {}, h('b', {}, 'Motivo da perda: '), lead.motivo_perda) : null,
         secao('Pessoa',
           campo('Nome', nome),
@@ -772,29 +812,60 @@ function telaConfig() {
   const metas = [campoMeta('faturamento', 'Faturamento do mês (R$)', '30000'), campoMeta('leads', 'Leads', '500'), campoMeta('quentes', 'Leads quentes', '300'),
     campoMeta('agendadas', 'Reuniões agendadas', '60'), campoMeta('realizadas', 'Reuniões realizadas', '50'), campoMeta('vendas', 'Vendas', '10')];
   const tpl = msgs.map((m, i) => h('label', {}, `Follow-up ${i + 1}`, h('textarea', {}, m)));
+
+  const equipe = S.equipe || [], padraoAtual = String(S.cfg.responsavel_padrao ?? 0);
+  const padrao = h('select', {}, h('option', { value: '0' }, 'Ninguém'),
+    ...equipe.filter((m) => m.ativo).map((m) => h('option', { value: String(m.id), selected: String(m.id) === padraoAtual }, m.nome)));
+  const novoNome = h('input', { placeholder: 'Nome da pessoa', maxlength: 100 });
+  const novoMail = h('input', { type: 'email', placeholder: 'E-mail (opcional)', maxlength: 254 });
+
+  const salvar = async (avisar = true) => {
+    const valores = Object.fromEntries(metas.map((x) => [x.chave, Number(x.label.lastChild.value) || 0]).filter(([, v]) => v > 0));
+    await run(sb.from('configuracoes').upsert([
+      { chave: 'metas', valor: valores },
+      { chave: 'meta', valor: { receita: valores.faturamento || 0, vendas: valores.vendas || 0 } }, // usada no bloco de meta do Painel
+      { chave: 'responsavel_padrao', valor: Number(padrao.value) || 0 },
+      { chave: 'mensagens', valor: tpl.map((l) => l.lastChild.value.slice(0, 1000)) }]), 'Não foi possível salvar.');
+    await carregar(); if (avisar) toast('Salvo!');
+  };
+  // ações da equipe salvam antes o que você já digitou na tela, para nada se perder
+  const acaoEquipe = (fn) => async () => { await salvar(false); await fn(); await carregar(); desenhar(); };
+
+  const linhas = equipe.map((m) => h('div', { class: 'fu' },
+    h('div', { class: 'grow' }, h('b', {}, m.nome), ' ', m.email ? h('small', {}, m.email) : null, ' ',
+      h('span', { class: 'tag' + (m.ativo ? ' won' : '') }, m.ativo ? 'ativo' : 'inativo')),
+    h('button', { class: 'btn sm ghost', type: 'button', onclick: acaoEquipe(() => run(sb.from('equipe').update({ ativo: !m.ativo }).eq('id', m.id), 'Não foi possível atualizar.')) }, m.ativo ? 'Desativar' : 'Ativar'),
+    h('button', { class: 'btn sm bad', type: 'button', onclick: acaoEquipe(async () => {
+      if (!confirm('Remover ' + m.nome + ' da equipe? Os leads dele ficam sem responsável.')) return;
+      await run(sb.from('equipe').delete().eq('id', m.id), 'Não foi possível remover.');
+    }) }, 'Remover')));
+  const adicionar = acaoEquipe(async () => {
+    if (!novoNome.value.trim()) { toast('Escreva o nome da pessoa.'); return; }
+    await run(sb.from('equipe').insert({ nome: novoNome.value.trim().slice(0, 100), email: novoMail.value.trim().slice(0, 254) }), 'Não foi possível adicionar.');
+  });
+
   return [
     h('div', { class: 'panel' }, h('h2', {}, 'Metas do mês'),
       h('p', { class: 'empty' }, 'Preencha o que quiser. O que ficar em branco aparece como "meta em aberto" na tela Metas. Valem para o mês corrente e para os próximos, até você mudar.'),
       h('div', { class: 'grid3' }, ...metas.map((x) => x.label))),
+    h('div', { class: 'panel' }, h('h2', {}, 'Equipe e responsáveis'),
+      h('p', { class: 'empty' }, 'Cadastre as pessoas que podem ser o responsável por uma negociação. Cada lead tem um campo "Responsável" no card. Dar acesso de login a alguém novo é feito no Supabase (Authentication → Users), à parte.'),
+      linhas.length ? linhas : h('div', { class: 'empty' }, 'Nenhuma pessoa cadastrada ainda.'),
+      h('div', { class: 'grid3', style: 'margin-top:10px;align-items:end' }, h('label', {}, 'Nome', novoNome), h('label', {}, 'E-mail', novoMail),
+        h('button', { class: 'btn', type: 'button', onclick: adicionar }, '+ Adicionar pessoa')),
+      h('label', { style: 'margin-top:14px;max-width:340px' }, 'Responsável padrão dos leads novos', padrao)),
     h('div', { class: 'panel' }, h('h2', {}, 'Mensagens de follow-up (WhatsApp)'),
       h('p', { class: 'empty' }, 'Use {nome} para o primeiro nome do lead. Dias: 1º = 1 dia após a reunião, 2º = +3, 3º = +1, 4º = +2.'), tpl),
     h('div', { class: 'actions' },
-      h('button', { class: 'btn', onclick: async () => {
-        const valores = Object.fromEntries(metas.map((x) => [x.chave, Number(x.label.lastChild.value) || 0]).filter(([, v]) => v > 0));
-        await run(sb.from('configuracoes').upsert([
-          { chave: 'metas', valor: valores },
-          { chave: 'meta', valor: { receita: valores.faturamento || 0, vendas: valores.vendas || 0 } }, // usada no bloco de meta do Painel
-          { chave: 'mensagens', valor: tpl.map((l) => l.lastChild.value.slice(0, 1000)) }]), 'Não foi possível salvar.');
-        await carregar(); toast('Salvo!');
-      } }, 'Salvar configurações'),
+      h('button', { class: 'btn', onclick: () => salvar(true) }, 'Salvar configurações'),
       h('button', { class: 'btn ghost', onclick: exportarCsv }, 'Exportar leads (CSV)')),
     h('p', { class: 'empty' }, 'Dica: exporte o CSV toda semana. O plano gratuito do Supabase não faz backup automático.'),
   ];
 }
 function exportarCsv() {
   const cel = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replaceAll('"', '""') + '"'; }; // evita fórmulas maliciosas no Excel
-  const cols = ['nome', 'email', 'telefone', 'etapa', 'origem', 'situacao', 'valor_venda', 'motivo_perda', 'reuniao_em', 'reuniao_realizada_em', 'fechado_em', 'criado_em'];
-  const csv = '﻿' + [cols.join(',')].concat(S.leads.map((l) => cols.map((c) => cel(l[c])).join(','))).join('\r\n');
+  const cols = ['nome', 'email', 'telefone', 'etapa', 'origem', 'situacao', 'temperatura', 'responsavel', 'valor_venda', 'motivo_perda', 'reuniao_em', 'reuniao_realizada_em', 'fechado_em', 'criado_em'];
+  const csv = '﻿' + [cols.join(',')].concat(S.leads.map((l) => cols.map((c) => cel(c === 'responsavel' ? ((S.equipe || []).find((m) => m.id === l.responsavel_id)?.nome ?? '') : l[c])).join(','))).join('\r\n');
   const a = h('a', { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })), download: `leads-${hoje()}.csv` });
   document.body.append(a); a.click(); a.remove();
 }
