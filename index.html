@@ -32,7 +32,7 @@
   a.btn { text-decoration:none; display:inline-block; }
   main { padding:16px; }
   .search { flex:1 1 220px; max-width:360px; }
-  .board { display:grid; grid-template-columns:repeat(7, minmax(200px,1fr)); gap:10px; overflow-x:auto; align-items:start; scroll-snap-type:x proximity; padding-bottom:8px; }
+  .board { display:grid; grid-template-columns:repeat(8, minmax(190px,1fr)); gap:10px; overflow-x:auto; align-items:start; scroll-snap-type:x proximity; padding-bottom:8px; }
   .col { background:var(--card); border:1px solid var(--line); border-radius:10px; min-height:160px; scroll-snap-align:start; }
   .col.over { outline:2px dashed var(--brand); }
   .col h3 { margin:0; padding:10px 12px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); display:flex; justify-content:space-between; border-bottom:1px solid var(--line); }
@@ -47,6 +47,10 @@
   .qa { padding:8px 0; border-bottom:1px solid var(--line); } .qa:last-child { border:0; }
   .qa small { color:var(--muted); display:block; } .qa div { overflow-wrap:anywhere; }
   select.filtro { width:auto; }
+  .confete { position:fixed; inset:0; width:100vw; height:100vh; margin:0; padding:0; border:0; background:transparent; overflow:visible; pointer-events:none; }
+  .comemora { position:fixed; inset:auto; top:22px; left:50%; transform:translateX(-50%); margin:0; border:0; background:var(--ok); color:#fff; font-weight:600; font-size:16px;
+    padding:12px 22px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.25); max-width:90vw; text-align:center; pointer-events:none; animation:sobe .35s ease-out; }
+  @keyframes sobe { from { opacity:0; transform:translate(-50%,-14px); } to { opacity:1; transform:translate(-50%,0); } }
   dialog.largo { width:min(1040px,96vw); }
   .cardhead { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
   .cardcols { display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
@@ -85,7 +89,7 @@
   @media (max-width:700px) {
     header { position:static; }
     .grid2, .grid3, .cardcols { grid-template-columns:1fr; }
-    .board { grid-template-columns:repeat(7, 78vw); }
+    .board { grid-template-columns:repeat(8, 78vw); }
     .funnel .row span { width:96px; }
   }
 </style>
@@ -107,7 +111,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSe
 const TZ = 'America/Sao_Paulo';
 const ETAPAS = [
   ['novo', 'Novo lead'], ['contato', 'Contato feito'], ['conversa', 'Em conversa'],
-  ['agendada', 'Reunião agendada'], ['realizada', 'Reunião realizada'], ['fechado', 'Fechado'], ['perdido', 'Perdido'],
+  ['agendada', 'Reunião agendada'], ['realizada', 'Reunião realizada'], ['proposta', 'Proposta enviada'], ['fechado', 'Fechado'], ['perdido', 'Perdido'],
 ];
 const ROTULO = Object.fromEntries(ETAPAS);
 const TIPO_ATIV = { followup: "Follow up", ligacao: "Ligação", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Outro" };
@@ -169,6 +173,28 @@ function ask(titulo, campos) {
       h('button', { class: 'btn ghost', onclick: () => fim(null) }, 'Cancelar')));
     inputs[0]?.lastChild.focus();
   });
+}
+
+// ---------- comemoração (reunião agendada) ----------
+const FRASES = ['Reunião marcada! 🎉', 'Mais um passo rumo à venda!', 'Agenda cheia é negócio andando.', 'Reunião agendada. Bora fechar!', 'Pequena vitória, grande caminho.', 'Boa! Mais uma conversa na mesa.'];
+// "popover" coloca o elemento por cima até da janela aberta do card
+function noTopo(el) { document.body.append(el); try { el.showPopover?.(); } catch { /* navegador antigo: fica na página mesmo */ } }
+function celebrar() {
+  const aviso = h('div', { class: 'comemora', role: 'status', popover: 'manual' }, FRASES[Math.floor(Math.random() * FRASES.length)]);
+  noTopo(aviso); setTimeout(() => aviso.remove(), 3600);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; // respeita quem não quer animação
+  const cv = h('canvas', { class: 'confete', 'aria-hidden': 'true', popover: 'manual' });
+  cv.width = innerWidth; cv.height = innerHeight; noTopo(cv);
+  const ctx = cv.getContext('2d'), cores = ['#2f5bea', '#16a34a', '#d97706', '#dc2626', '#a855f7', '#facc15'];
+  const ps = Array.from({ length: 150 }, () => ({ x: Math.random() * cv.width, y: -20 - Math.random() * cv.height * .4, vx: (Math.random() - .5) * 4,
+    vy: 2 + Math.random() * 4, r: 5 + Math.random() * 6, a: Math.random() * 6.28, va: (Math.random() - .5) * .3, c: cores[Math.floor(Math.random() * cores.length)] }));
+  const fim = performance.now() + 2800;
+  (function quadro(t) {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    for (const p of ps) { p.x += p.vx; p.y += p.vy; p.vy += .05; p.a += p.va;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); ctx.fillStyle = p.c; ctx.fillRect(-p.r / 2, -p.r / 2, p.r, p.r * .6); ctx.restore(); }
+    if (t < fim) requestAnimationFrame(quadro); else cv.remove();
+  })(performance.now());
 }
 
 // ---------- estado ----------
@@ -297,6 +323,7 @@ async function mover(lead, etapa) {
     if (!r) return; if (r.d) upd.reuniao_em = fromLocalInput(r.d);
   }
   await run(sb.from('leads').update(upd).eq('id', lead.id), 'Não foi possível mover o lead.');
+  if (etapa === 'agendada') celebrar();
   await recarregar();
 }
 
@@ -396,6 +423,7 @@ async function abrirLead(id) {
     const upd = { reuniao_em: fromLocalInput(dataReun.value + 'T' + (horaReun.value || '09:00')) };
     if (['novo', 'contato', 'conversa'].includes(lead.etapa)) upd.etapa = 'agendada';
     await run(sb.from('leads').update(upd).eq('id', id), 'Não foi possível agendar.');
+    celebrar();
   });
 
   // --- respostas do formulário
@@ -445,7 +473,8 @@ async function abrirLead(id) {
           h('div', { class: 'grid2' }, campo('Data', dataReun), campo('Hora', horaReun)),
           h('div', { class: 'actions' },
             h('button', { class: 'btn', type: 'button', onclick: agendar }, 'Agendar reunião'),
-            lead.etapa === 'agendada' ? h('button', { class: 'btn ok', type: 'button', onclick: acao(() => run(sb.from('leads').update({ etapa: 'realizada' }).eq('id', id), 'Não foi possível atualizar.')) }, 'Marcar como realizada') : null)),
+            lead.etapa === 'agendada' ? h('button', { class: 'btn ok', type: 'button', onclick: acao(() => run(sb.from('leads').update({ etapa: 'realizada' }).eq('id', id), 'Não foi possível atualizar.')) }, 'Marcar como realizada') : null,
+            lead.etapa === 'realizada' ? h('button', { class: 'btn ok', type: 'button', onclick: acao(() => run(sb.from('leads').update({ etapa: 'proposta' }).eq('id', id), 'Não foi possível atualizar.')) }, 'Marcar proposta enviada') : null)),
         secao('Datas das etapas', h('div', { class: 'tl', style: 'max-height:none;border:0;padding:0' },
           hist.map((e) => h('div', {}, fmtDT(e.entrou_em), ' — ', h('b', {}, ROTULO[e.etapa]), e.pulada ? ' (passou direto)' : '')))))),
     h('div', { class: 'cardfoot' },
@@ -506,18 +535,20 @@ async function telaPainel() {
   const kpi = (rot, val) => h('div', { class: 'kpi' }, h('span', {}, rot), h('b', {}, val));
   const progresso = (rot, atual, alvo, fmt) => alvo > 0 ? h('div', { style: 'margin-bottom:12px' }, h('span', {}, `${rot}: ${fmt(atual)} de ${fmt(alvo)} (${pct(atual / alvo)})`),
     h('div', { class: 'bar' }, h('i', { style: `width:${Math.min(100, atual / alvo * 100)}%` }))) : null;
-  const fluxo = ['novo', 'contato', 'conversa', 'agendada', 'realizada', 'fechado'];
+  const fluxo = ['novo', 'contato', 'conversa', 'agendada', 'realizada', 'proposta', 'fechado'];
+  // Proposta e Fechado são medidos sobre as reuniões realizadas: a venda pode sair na própria reunião, sem proposta.
+  const base = (id, i) => (id === 'proposta' || id === 'fechado') ? c.realizada : (i ? c[fluxo[i - 1]] : 0);
   return [
     h('div', { class: 'panel actions' }, h('b', {}, 'Mês:'), h('input', { type: 'month', value: p.mes, style: 'width:auto', onchange: (e) => { S.mes = e.target.value || null; desenhar(); } })),
-    h('div', { class: 'kpis' }, kpi('Leads novos', p.leads), kpi('Reuniões agendadas', c.agendada), kpi('Reuniões realizadas', p.reunioes), kpi('Vendas', p.vendas),
+    h('div', { class: 'kpis' }, kpi('Leads novos', p.leads), kpi('Reuniões agendadas', c.agendada), kpi('Reuniões realizadas', p.reunioes), kpi('Propostas enviadas', p.propostas ?? c.proposta ?? 0), kpi('Vendas', p.vendas),
       kpi('Faturamento', brl(p.receita)), kpi('Reunião → venda', pct(p.conversao_reuniao_venda)), kpi('Lead → reunião', pct(p.conversao_lead_reuniao)),
       kpi('Ticket médio', brl(p.ticket_medio)), kpi('Follow-ups feitos', p.followups_feitos), kpi('Perdidos', p.perdidos)),
     h('div', { class: 'panel' }, h('h2', {}, 'Meta do mês'),
       (meta.receita > 0 || meta.vendas > 0) ? [progresso('Faturamento', p.receita, meta.receita, brl), progresso('Vendas', p.vendas, meta.vendas, (n) => n)]
         : h('div', { class: 'empty' }, 'Ainda sem meta. Defina em Config quando quiser.')),
     h('div', { class: 'panel funnel' }, h('h2', {}, 'Chegaram a cada etapa no mês'),
-      h('p', { class: 'empty', style: 'margin-top:-6px' }, 'Cada lead conta pela data em que entrou na etapa, mesmo que já tenha avançado. A % é sobre a etapa anterior.'),
-      fluxo.map((id, i) => { const n = c[id], prev = i ? c[fluxo[i - 1]] : 0;
+      h('p', { class: 'empty', style: 'margin-top:-6px' }, 'Cada lead conta pela data em que entrou na etapa, mesmo que já tenha avançado. A % é sobre a etapa anterior; em Proposta enviada e Fechado, sobre as reuniões realizadas (a venda pode sair na própria reunião).'),
+      fluxo.map((id, i) => { const n = c[id], prev = base(id, i);
         return h('div', { class: 'row' }, h('span', {}, ROTULO[id]), h('div', { class: 'bar' }, h('i', { style: `width:${n / Math.max(1, c.novo) * 100}%` })), h('b', {}, n), h('small', {}, i && prev ? pct(n / prev) : '')); }),
       h('div', { class: 'row' }, h('span', {}, 'Perdido'), h('div', { class: 'bar' }, h('i', { style: `width:${c.perdido / Math.max(1, c.novo) * 100}%;background:var(--bad)` })), h('b', {}, c.perdido), h('small', {}))),
     h('div', { class: 'panel funnel' }, h('h2', {}, 'Funil agora (todos os leads)'),
