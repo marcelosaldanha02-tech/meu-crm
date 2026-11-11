@@ -88,7 +88,12 @@
   .panel.resumo.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); }
   .tag.resp { background:#eef2ff; color:#3730a3; }
   .btn.wa { background:#25d366; color:#fff; } .btn.wa:hover { background:#1ebe5b; }
-  .quem { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .quem { display:inline-flex; align-items:center; gap:8px; background:none; border:0; color:var(--muted); font:inherit; font-size:13px; white-space:nowrap; cursor:pointer; padding:3px 8px 3px 4px; border-radius:999px; }
+  .quem:hover { background:var(--line); }
+  .av { border-radius:50%; object-fit:cover; flex:none; display:inline-grid; place-items:center; vertical-align:middle; }
+  .av-ini { background:#e6edff; color:var(--brand); font-weight:700; }
+  .foto-previa { display:flex; justify-content:center; padding:6px 0; }
+  .linha select { flex:1; }
   .papel-sel { width:auto; padding:4px 8px; font-size:13px; }
   .convite-link { font-size:12px; }
   .aviso-convite { background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3; border-radius:8px; padding:10px 12px; margin-bottom:10px; font-size:13px; }
@@ -390,7 +395,7 @@ async function abrirApp() {
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
     h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, situacao, filtro, filtroResp, h('div', { class: 'spacer' }),
-      h('span', { class: 'quem' }, '👤 ' + (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()]),
+      h('button', { class: 'quem', id: 'chipQuem', type: 'button', title: S.eu.legado ? '' : 'Trocar minha foto', onclick: minhaFoto }, avatar(S.eu, 26), (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()]),
       h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
       h('button', { class: 'btn ghost', onclick: () => sb.auth.signOut() }, 'Sair')),
     h('main', { id: 'view' }));
@@ -470,7 +475,7 @@ function cartao(l, t) {
     (temp || rep || tag || quem) ? h('div', { class: 'chips', style: 'margin-top:4px' },
       temp ? h('span', { class: 'tag ' + temp[1] }, temp[0]) : null,
       rep ? h('span', { class: 'tag rep', title: S.etiq[l.id].join('\n') }, `↻ Preencheu de novo${rep > 1 ? ' ×' + rep : ''}`) : null,
-      tag, quem ? h('span', { class: 'tag resp' }, '👤 ' + quem.nome) : null) : null,
+      tag, quem ? h('span', { class: 'tag resp', style: 'display:inline-flex;align-items:center;gap:4px' }, quem.foto ? avatar(quem, 16) : '👤', quem.nome) : null) : null,
     acoesFu);
   el.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', l.id));
   return el;
@@ -664,7 +669,8 @@ async function abrirLead(id) {
       h('div', { class: 'col2' },
         h('div', { class: 'grid2' }, campo('Valor da venda (R$)', valor), campo('Estágio', estagio)),
         h('small', { style: 'color:var(--muted);margin-top:-8px' }, 'O valor só entra no faturamento quando você clica em Ganho.'),
-        h('div', { class: 'grid2' }, campo('Temperatura', selTemp), campo('Responsável', selResp)),
+        h('div', { class: 'grid2' }, campo('Temperatura', selTemp), campo('Responsável', h('div', { class: 'linha' },
+          (S.equipe || []).find((m) => m.id === lead.responsavel_id) ? avatar((S.equipe || []).find((m) => m.id === lead.responsavel_id), 30) : null, selResp))),
         (S.equipe || []).filter((m) => m.ativo).length === 0 ? h('small', { style: 'color:var(--muted);margin-top:-8px' }, 'Cadastre as pessoas da equipe em Config para escolher o responsável.') : null,
         (lead.situacao === 'perdida' && lead.motivo_perda) ? h('div', {}, h('b', {}, 'Motivo da perda: '), lead.motivo_perda) : null,
         secao('Pessoa',
@@ -855,6 +861,79 @@ async function telaMetas() {
   ].filter(Boolean);
 }
 
+// ---------- foto dos usuários ----------
+// Avatar: a foto da pessoa, ou um círculo com a inicial do nome
+function avatar(pessoa, px = 28) {
+  const inicial = ((pessoa?.nome || '?').trim()[0] || '?').toUpperCase();
+  return pessoa?.foto
+    ? h('img', { class: 'av', src: pessoa.foto, alt: pessoa.nome || '', style: `width:${px}px;height:${px}px` })
+    : h('span', { class: 'av av-ini', 'aria-hidden': 'true', style: `width:${px}px;height:${px}px;font-size:${Math.round(px * .46)}px` }, inicial);
+}
+// Lê a imagem, recorta em quadrado e reduz (256 px, JPEG): a foto fica com poucos KB
+function redimensionarFoto(arquivo) {
+  return new Promise((ok, falha) => {
+    if (!arquivo || !/^image\/(jpeg|png|webp)$/.test(arquivo.type)) return falha(new Error('Escolha uma imagem JPG, PNG ou WebP.'));
+    if (arquivo.size > 8 * 1024 * 1024) return falha(new Error('A imagem é grande demais (máximo 8 MB).'));
+    const leitor = new FileReader();
+    leitor.onerror = () => falha(new Error('Não foi possível ler a imagem.'));
+    leitor.onload = () => {
+      const img = new Image();
+      img.onerror = () => falha(new Error('Esse arquivo não parece ser uma imagem válida.'));
+      img.onload = () => {
+        const lado = Math.min(img.naturalWidth, img.naturalHeight);
+        for (const [tam, qual] of [[256, 0.85], [256, 0.7], [192, 0.7], [128, 0.7]]) {
+          const c = document.createElement('canvas'); c.width = c.height = tam;
+          const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, tam, tam);   // fundo branco para PNG transparente
+          x.drawImage(img, (img.naturalWidth - lado) / 2, (img.naturalHeight - lado) / 2, lado, lado, 0, 0, tam, tam);
+          const url = c.toDataURL('image/jpeg', qual);
+          if (url.length <= 60000) return ok(url);
+        }
+        falha(new Error('Não foi possível reduzir a imagem. Tente outra foto.'));
+      };
+      img.src = leitor.result;
+    };
+    leitor.readAsDataURL(arquivo);
+  });
+}
+// Janela para escolher / remover a foto. aoSalvar(foto) recebe o texto da imagem (ou null para remover).
+function dialogoFoto(pessoa, aoSalvar) {
+  let nova = pessoa.foto || null, mudou = false;
+  const previa = h('div', { class: 'foto-previa' }, avatar({ ...pessoa, foto: nova }, 120));
+  const redesenhar = () => previa.replaceChildren(avatar({ ...pessoa, foto: nova }, 120));
+  const arquivo = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', style: 'display:none', onchange: async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try { nova = await redimensionarFoto(f); mudou = true; redesenhar(); } catch (err) { toast(err.message); }
+  } });
+  dlg.onclose = null;
+  openDialog(h('h2', {}, 'Foto de ' + pessoa.nome), previa, arquivo,
+    h('div', { class: 'actions', style: 'justify-content:center' },
+      h('button', { class: 'btn', type: 'button', onclick: () => arquivo.click() }, '📷 Escolher foto'),
+      h('button', { class: 'btn ghost', type: 'button', onclick: () => { nova = null; mudou = true; redesenhar(); } }, 'Remover foto')),
+    h('small', { style: 'color:var(--muted);text-align:center' }, 'A foto é recortada em quadrado e reduzida automaticamente.'),
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn ok', type: 'button', onclick: async () => {
+        if (!mudou) return closeDialog();
+        try { await aoSalvar(nova); closeDialog(); toast('Foto salva!'); }
+        catch (err) { console.error(err); toast('Não foi possível salvar a foto. O SQL das fotos (23) já foi rodado no Supabase?'); }
+      } }, 'Salvar'),
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeDialog }, 'Cancelar')));
+}
+// Minha foto (clicando no meu nome, no topo)
+function minhaFoto() {
+  if (S.eu?.legado) return toast('As fotos precisam do SQL 23 rodado no Supabase.');
+  dialogoFoto(S.eu, async (foto) => {
+    const { error } = await sb.rpc('salvar_minha_foto', { p_foto: foto });
+    if (error) throw error;
+    S.eu.foto = foto;
+    const meu = (S.equipe || []).find((m) => m.id === S.eu.id); if (meu) meu.foto = foto;
+    atualizarChip(); desenhar();
+  });
+}
+function atualizarChip() {
+  const c = $('#chipQuem'); if (!c || !S.eu) return;
+  c.replaceChildren(avatar(S.eu, 26), (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()]);
+}
+
 // ---------- equipe: convites (a função gerenciar-equipe, no Supabase, cria o login) ----------
 async function chamarEquipe(corpo) {
   try {
@@ -958,9 +1037,16 @@ function telaConfig() {
       await carregar(); desenhar();
     } }, ...[['vendedor', 'Vendedor'], ['gerente', 'Gerente'], ['gestor', 'Gestor']].map(([v, r]) => h('option', { value: v, selected: v === m.papel }, r)));
     return h('div', { class: 'fu' },
+      avatar(m, 36),
       h('div', { class: 'grow' }, h('b', {}, m.nome), ' ', m.email ? h('small', {}, m.email) : h('small', {}, '(sem e-mail)'), ' ',
         h('span', { class: 'tag' + cls }, txt), m.ativo ? null : h('span', { class: 'tag' }, 'inativo')),
       papelSel,
+      h('button', { class: 'btn sm ghost', type: 'button', title: 'Trocar a foto de ' + m.nome, onclick: () => dialogoFoto(m, async (foto) => {
+        const { error } = await sb.from('equipe').update({ foto }).eq('id', m.id);
+        if (error) throw error;
+        if (S.eu && m.id === S.eu.id) { S.eu.foto = foto; atualizarChip(); }
+        await carregar(); desenhar();
+      }) }, '📷 Foto'),
       m.auth_user_id
         ? h('button', { class: 'btn sm ghost', type: 'button', onclick: novoLinkDe(m) }, 'Gerar novo link')
         : h('button', { class: 'btn sm', type: 'button', onclick: convidarMembro(m) }, 'Convidar'),
