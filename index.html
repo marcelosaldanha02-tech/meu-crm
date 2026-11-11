@@ -206,7 +206,6 @@ function noTopo(el) { document.body.append(el); try { el.showPopover?.(); } catc
 function celebrar() {
   const aviso = h('div', { class: 'comemora', role: 'status', popover: 'manual' }, FRASES[Math.floor(Math.random() * FRASES.length)]);
   noTopo(aviso); setTimeout(() => aviso.remove(), 3600);
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; // respeita quem não quer animação
   const cv = h('canvas', { class: 'confete', 'aria-hidden': 'true', popover: 'manual' });
   cv.width = innerWidth; cv.height = innerHeight; noTopo(cv);
   const ctx = cv.getContext('2d'), cores = ['#2f5bea', '#16a34a', '#d97706', '#dc2626', '#a855f7', '#facc15'];
@@ -222,7 +221,7 @@ function celebrar() {
 }
 
 // ---------- estado ----------
-const SITUACOES = [['andamento', 'Em andamento'], ['todas', 'Todas (com ganhas)'], ['ganhas', 'Ganhas'], ['perdidas', 'Perdidas']];
+const SITUACOES = [['andamento', 'Em andamento'], ['todas', 'Todas (ganhas e perdidas)'], ['ganhas', 'Ganhas'], ['perdidas', 'Perdidas']];
 let sitSalva = 'andamento'; try { sitSalva = localStorage.getItem('crm_sit') || 'andamento'; } catch { /* sem armazenamento: usa o padrão */ }
 const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
 // Cada etapa tem a sua cor e um emoji: [cor forte, cor suave de fundo, emoji]
@@ -322,7 +321,8 @@ function quadro() {
   const lista = leadsFiltrados(), t = hoje();
   if (S.sit === 'ganhas' || S.sit === 'perdidas') return listaEncerradas(lista, S.sit === 'ganhas');
   // "Perdido" não é mais coluna: perdidas aparecem pelo filtro. Em andamento esconde também as ganhas.
-  const colunas = ETAPAS.filter(([id]) => id !== 'perdido' && (S.sit === 'todas' || id !== 'fechado'));
+  // Em "Todas" aparecem também Fechado (ganhas) e Perdido (perdidas), lado a lado.
+  const colunas = ETAPAS.filter(([id]) => S.sit === 'todas' || (id !== 'perdido' && id !== 'fechado'));
   return h('div', { class: 'board', style: `--cols:${colunas.length}` }, ...colunas.map(([id, nome]) => {
     const itens = lista.filter((l) => l.etapa === id);
     const col = h('div', { class: 'col', 'data-etapa': id, style: `--c:${COR[id][0]};--c-bg:${COR[id][1]}` },
@@ -405,7 +405,7 @@ async function mover(lead, etapa) {
   await run(sb.from('leads').update(upd).eq('id', lead.id), 'Não foi possível mover o lead.');
   if (etapa === 'agendada') celebrar();
   if (etapa === 'fechado' && S.sit === 'andamento') toast('Negociação ganha! Para vê-la, use o filtro "Negociações: Ganhas".');
-  if (etapa === 'perdido' && S.sit !== 'perdidas') toast('Negociação marcada como perdida. Para vê-la, use o filtro "Negociações: Perdidas".');
+  if (etapa === 'perdido' && S.sit !== 'perdidas' && S.sit !== 'todas') toast('Negociação marcada como perdida. Para vê-la, use o filtro "Negociações: Perdidas".');
   await recarregar();
 }
 
