@@ -8,6 +8,7 @@
 <title>Meu CRM</title>
 <style>
   :root {
+    color-scheme: light dark; /* barras de rolagem e campos seguem o tema claro/escuro */
     --bg:#f5f6f8; --card:#fff; --text:#1c2230; --muted:#6b7385; --line:#e3e6ec;
     --brand:#2f5bea; --brand-d:#2448c0; --ok:#16a34a; --warn:#d97706; --bad:#dc2626;
   }
@@ -32,7 +33,7 @@
   a.btn { text-decoration:none; display:inline-block; }
   main { padding:16px; }
   .search { flex:1 1 220px; max-width:360px; }
-  .board { display:grid; grid-template-columns:repeat(8, minmax(190px,1fr)); gap:10px; overflow-x:auto; align-items:start; scroll-snap-type:x proximity; padding-bottom:8px; }
+  .board { display:grid; grid-template-columns:repeat(var(--cols,6), minmax(190px,1fr)); gap:10px; overflow-x:auto; align-items:start; scroll-snap-type:x proximity; padding-bottom:8px; }
   .col { background:var(--card); border:1px solid var(--line); border-radius:10px; min-height:160px; scroll-snap-align:start; }
   .col.over { outline:2px dashed var(--brand); }
   .col h3 { margin:0; padding:10px 12px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); display:flex; justify-content:space-between; border-bottom:1px solid var(--line); }
@@ -42,6 +43,15 @@
   .lead b { display:block; overflow-wrap:anywhere; } .lead small { color:var(--muted); overflow-wrap:anywhere; }
   .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; background:var(--line); color:var(--muted); margin-top:4px; }
   .tag.late { background:var(--bad); color:#fff; } .tag.today { background:var(--warn); color:#fff; } .tag.won { background:var(--ok); color:#fff; }
+  /* Negociação ganha = verde, perdida = vermelho (card do quadro, listas e janela do card) */
+  .lead.ganha { background:rgba(22,163,74,.16); border-color:var(--ok); border-left-width:5px; }
+  .lead.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); border-left-width:5px; }
+  .panel .fu.ganha, .panel .fu.perdida { border:1px solid; border-left-width:5px; border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+  .panel .fu.ganha { background:rgba(22,163,74,.16); border-color:var(--ok); }
+  .panel .fu.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); }
+  dialog.ganha { border:2px solid var(--ok); border-top:8px solid var(--ok); }
+  dialog.perdida { border:2px solid var(--bad); border-top:8px solid var(--bad); }
+  .tag.lost { background:var(--bad); color:#fff; }
   .tag.hot { background:var(--bad); color:#fff; } .tag.warm { background:var(--warn); color:#fff; } .tag.rep { background:var(--brand); color:#fff; }
   .chips { display:flex; gap:6px; flex-wrap:wrap; } .chips .tag { margin:0; }
   .qa { padding:8px 0; border-bottom:1px solid var(--line); } .qa:last-child { border:0; }
@@ -85,11 +95,11 @@
   .empty { color:var(--muted); padding:8px 0; }
   .login { max-width:380px; margin:12vh auto; padding:24px; background:var(--card); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column; gap:12px; }
   .err { color:var(--bad); min-height:1.2em; }
-  #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:8px; z-index:99; max-width:90vw; }
+  #toast { position:fixed; inset:auto; margin:0; border:0; left:50%; bottom:20px; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:8px; z-index:99; max-width:90vw; }
   @media (max-width:700px) {
     header { position:static; }
     .grid2, .grid3, .cardcols { grid-template-columns:1fr; }
-    .board { grid-template-columns:repeat(8, 78vw); }
+    .board { grid-template-columns:repeat(var(--cols,6), 78vw); }
     .funnel .row span { width:96px; }
   }
 </style>
@@ -97,7 +107,7 @@
 <body>
 <div id="app"></div>
 <dialog id="dlg"></dialog>
-<div id="toast" hidden></div>
+<div id="toast" popover="manual" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"
         integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
@@ -145,8 +155,10 @@ const waLink = (tel, msg) => `https://wa.me/${String(tel).replace(/\D/g, '')}` +
 
 let toastTimer;
 function toast(msg) {
+  // "popover" faz o aviso aparecer por cima até das janelas abertas (card, perguntas)
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+  try { t.showPopover?.(); } catch { /* já está aberto */ }
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; try { t.hidePopover?.(); } catch { /* ok */ } }, 4000);
 }
 async function run(promise, falha = 'Algo deu errado. Tente de novo.') {
   const { data, error } = await promise;
@@ -156,12 +168,15 @@ async function run(promise, falha = 'Algo deu errado. Tente de novo.') {
 
 // Janela de diálogo reaproveitável
 const dlg = $('#dlg');
-function openDialog(...content) { dlg.classList.remove("largo"); dlg.replaceChildren(h('div', { class: 'dlg' }, ...content)); if (!dlg.open) dlg.showModal(); }
+function openDialog(...content) { dlg.classList.remove("largo", "ganha", "perdida"); dlg.replaceChildren(h('div', { class: 'dlg' }, ...content)); if (!dlg.open) dlg.showModal(); }
 function closeDialog() { if (dlg.open) dlg.close(); }
+const MOTIVOS_PERDA = ['Lead desqualificado', 'Não respondeu', 'Achou caro', 'Não é o momento'];
 function ask(titulo, campos) {
   return new Promise((resolve) => {
     const inputs = campos.map((c) => {
-      const el = c.type === 'textarea' ? h('textarea', { name: c.name }) : h('input', { name: c.name, type: c.type || 'text', step: c.step, min: c.min });
+      const el = c.type === 'textarea' ? h('textarea', { name: c.name })
+        : c.type === 'select' ? h('select', { name: c.name }, h('option', { value: '' }, 'Escolha uma opção...'), ...c.options.map((o) => h('option', { value: o }, o)))
+        : h('input', { name: c.name, type: c.type || 'text', step: c.step, min: c.min });
       if (c.value != null) el.value = c.value;
       return h('label', {}, c.label, el);
     });
@@ -169,7 +184,12 @@ function ask(titulo, campos) {
     const fim = (v) => { if (!feito) { feito = true; closeDialog(); resolve(v); } };
     dlg.onclose = () => { if (!dlg.open) fim(null); }; // ignora o fechamento do card anterior
     openDialog(h('h2', {}, titulo), ...inputs, h('div', { class: 'actions' },
-      h('button', { class: 'btn', onclick: () => fim(Object.fromEntries(inputs.map((l) => [l.lastChild.name, l.lastChild.value]))) }, 'Confirmar'),
+      h('button', { class: 'btn', onclick: () => {
+        const vals = Object.fromEntries(inputs.map((l) => [l.lastChild.name, l.lastChild.value]));
+        const falta = campos.find((c) => c.required && !String(vals[c.name]).trim());
+        if (falta) { toast('Escolha: ' + falta.label.toLowerCase() + '.'); return; } // a janela continua aberta
+        fim(vals);
+      } }, 'Confirmar'),
       h('button', { class: 'btn ghost', onclick: () => fim(null) }, 'Cancelar')));
     inputs[0]?.lastChild.focus();
   });
@@ -198,7 +218,9 @@ function celebrar() {
 }
 
 // ---------- estado ----------
-const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', mes: null, atrasados: 0 };
+const SITUACOES = [['andamento', 'Em andamento'], ['todas', 'Todas (com ganhas)'], ['ganhas', 'Ganhas'], ['perdidas', 'Perdidas']];
+let sitSalva = 'andamento'; try { sitSalva = localStorage.getItem('crm_sit') || 'andamento'; } catch { /* sem armazenamento: usa o padrão */ }
+const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
 const TEMP = { quente: ['🔥 Quente', 'hot'], morno: ['Morno', 'warm'] };
 const app = $('#app');
 
@@ -252,10 +274,14 @@ async function abrirApp() {
     oninput: (e) => { S.q = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } });
   const filtro = h('select', { class: 'filtro', 'aria-label': 'Filtrar por temperatura', onchange: (e) => { S.temp = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } },
     h('option', { value: '' }, 'Todas as temperaturas'), h('option', { value: 'quente' }, '🔥 Só quentes'), h('option', { value: 'morno' }, 'Só mornos'));
+  const situacao = h('select', { class: 'filtro', 'aria-label': 'Filtrar negociações', onchange: (e) => {
+    S.sit = e.target.value; try { localStorage.setItem('crm_sit', S.sit); } catch { /* ok */ }
+    S.view = 'funil'; desenhar(); } },
+    ...SITUACOES.map(([k, n]) => h('option', { value: k, selected: k === S.sit }, 'Negociações: ' + n)));
   const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['config', 'Config']].map(([id, nome]) =>
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
-    h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, filtro, h('div', { class: 'spacer' }),
+    h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, situacao, filtro, h('div', { class: 'spacer' }),
       h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
       h('button', { class: 'btn ghost', onclick: () => sb.auth.signOut() }, 'Sair')),
     h('main', { id: 'view' }));
@@ -277,7 +303,10 @@ async function recarregar() { await carregar(); desenhar(); }
 // ---------- funil ----------
 function quadro() {
   const lista = leadsFiltrados(), t = hoje();
-  return h('div', { class: 'board' }, ...ETAPAS.map(([id, nome]) => {
+  if (S.sit === 'ganhas' || S.sit === 'perdidas') return listaEncerradas(lista, S.sit === 'ganhas');
+  // "Perdido" não é mais coluna: perdidas aparecem pelo filtro. Em andamento esconde também as ganhas.
+  const colunas = ETAPAS.filter(([id]) => id !== 'perdido' && (S.sit === 'todas' || id !== 'fechado'));
+  return h('div', { class: 'board', style: `--cols:${colunas.length}` }, ...colunas.map(([id, nome]) => {
     const itens = lista.filter((l) => l.etapa === id);
     const col = h('div', { class: 'col', 'data-etapa': id },
       h('h3', {}, h('span', {}, nome), h('span', {}, itens.length)),
@@ -292,6 +321,21 @@ function quadro() {
     return col;
   }));
 }
+// Lista de negociações já encerradas: ganhas (Fechado) ou perdidas
+function listaEncerradas(lista, ganhas) {
+  const itens = lista.filter((l) => l.etapa === (ganhas ? 'fechado' : 'perdido'))
+    .sort((a, b) => String(b.fechado_em || '').localeCompare(String(a.fechado_em || '')));
+  const total = itens.reduce((s, l) => s + Number(l.valor_venda || 0), 0);
+  return h('div', { class: 'panel' },
+    h('h2', {}, ganhas ? `Negociações ganhas (${itens.length}) • ${brl(total)}` : `Negociações perdidas (${itens.length})`),
+    itens.length ? itens.map((l) => h('div', { class: 'fu ' + (ganhas ? 'ganha' : 'perdida'), style: 'cursor:pointer', onclick: () => abrirLead(l.id) },
+      h('div', { class: 'grow' }, h('b', {}, l.nome), ' ', TEMP[l.temperatura] ? h('span', { class: 'tag ' + TEMP[l.temperatura][1] }, TEMP[l.temperatura][0]) : null,
+        h('br'), h('small', {}, l.telefone ? '+' + l.telefone : l.email)),
+      ganhas ? h('span', { class: 'tag won' }, brl(l.valor_venda))
+        : h('small', {}, l.motivo_perda ? 'Motivo: ' + l.motivo_perda : 'Sem motivo registrado'),
+      h('small', {}, fmtDT(l.fechado_em))))
+      : h('div', { class: 'empty' }, ganhas ? 'Nenhuma negociação ganha ainda.' : 'Nenhuma negociação perdida.'));
+}
 function cartao(l, t) {
   const fu = S.proximo[l.id];
   let tag = null;
@@ -299,7 +343,7 @@ function cartao(l, t) {
   else if (fu) tag = h('span', { class: 'tag ' + (fu.data_prevista < t ? 'late' : fu.data_prevista === t ? 'today' : '') }, `Follow-up ${fu.numero} • ${fmtDay(fu.data_prevista).slice(0, 5)}`);
   else if (l.etapa === 'agendada' && l.reuniao_em) tag = h('span', { class: 'tag' }, fmtDT(l.reuniao_em));
   const temp = TEMP[l.temperatura], rep = (S.etiq[l.id] || []).length;
-  const el = h('div', { class: 'lead', draggable: 'true', onclick: () => abrirLead(l.id) },
+  const el = h('div', { class: 'lead' + (l.etapa === 'fechado' ? ' ganha' : l.etapa === 'perdido' ? ' perdida' : ''), draggable: 'true', onclick: () => abrirLead(l.id) },
     h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email),
     (temp || rep || tag) ? h('div', { class: 'chips', style: 'margin-top:4px' },
       temp ? h('span', { class: 'tag ' + temp[1] }, temp[0]) : null,
@@ -315,8 +359,9 @@ async function mover(lead, etapa) {
     if (!r) return; upd.valor_venda = Number(r.v) || 0;
   }
   if (etapa === 'perdido') {
-    const r = await ask('Motivo da perda (opcional)', [{ name: 'm', label: 'Motivo', value: lead.motivo_perda || '' }]);
-    if (!r) return; upd.motivo_perda = r.m.slice(0, 500);
+    const r = await ask('Por que a negociação foi perdida?', [{ name: 'm', label: 'Motivo da perda', type: 'select', required: true,
+      options: MOTIVOS_PERDA, value: MOTIVOS_PERDA.includes(lead.motivo_perda) ? lead.motivo_perda : '' }]);
+    if (!r) return; upd.motivo_perda = r.m;
   }
   if (etapa === 'agendada') {
     const r = await ask('Reunião agendada', [{ name: 'd', label: 'Data e hora (opcional)', type: 'datetime-local', value: toLocalInput(lead.reuniao_em) }]);
@@ -324,6 +369,8 @@ async function mover(lead, etapa) {
   }
   await run(sb.from('leads').update(upd).eq('id', lead.id), 'Não foi possível mover o lead.');
   if (etapa === 'agendada') celebrar();
+  if (etapa === 'fechado' && S.sit === 'andamento') toast('Negociação ganha! Para vê-la, use o filtro "Negociações: Ganhas".');
+  if (etapa === 'perdido' && S.sit !== 'perdidas') toast('Negociação marcada como perdida. Para vê-la, use o filtro "Negociações: Perdidas".');
   await recarregar();
 }
 
@@ -438,7 +485,8 @@ async function abrirLead(id) {
   dlg.onclose = () => { if (!dlg.open) recarregar(); };
   openDialog(
     h('div', { class: 'cardhead' },
-      h('h2', {}, lead.nome, ' ', h('span', { class: 'tag' }, ROTULO[lead.etapa])),
+      h('h2', {}, lead.nome, ' ', h('span', { class: 'tag' + (lead.etapa === 'fechado' ? ' won' : lead.etapa === 'perdido' ? ' lost' : '') },
+        lead.etapa === 'fechado' ? 'Negociação ganha' : lead.etapa === 'perdido' ? 'Negociação perdida' : ROTULO[lead.etapa])),
       h('div', { class: 'actions' },
         lead.etapa !== 'fechado' ? h('button', { class: 'btn ok', type: 'button', onclick: () => fechar('fechado') }, 'Ganho') : null,
         lead.etapa !== 'perdido' ? h('button', { class: 'btn bad', type: 'button', onclick: () => fechar('perdido') }, 'Perdido') : null)),
@@ -489,6 +537,8 @@ async function abrirLead(id) {
         if (estagio.value !== lead.etapa) { closeDialog(); await mover({ ...lead, nome: nome.value, valor_venda: Number(valor.value) || 0 }, estagio.value); } else closeDialog();
       } }, 'Salvar')));
   dlg.classList.add('largo');
+  dlg.classList.toggle('ganha', lead.etapa === 'fechado');
+  dlg.classList.toggle('perdida', lead.etapa === 'perdido');
 }
 
 // ---------- hoje ----------
