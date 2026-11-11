@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src https://edvkntjdlovqshjpuafv.supabase.co; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Meu CRM</title>
+<style>
+  :root {
+    --bg:#f5f6f8; --card:#fff; --text:#1c2230; --muted:#6b7385; --line:#e3e6ec;
+    --brand:#2f5bea; --brand-d:#2448c0; --ok:#16a34a; --warn:#d97706; --bad:#dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151c; --card:#1b2029; --text:#e8ebf2; --muted:#9099ad; --line:#2b3240; --brand:#5b82ff; --brand-d:#7b9bff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:10px 16px; padding:10px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0 6px 0 0; }
+  nav { display:flex; gap:4px; flex-wrap:wrap; }
+  nav button { background:none; border:0; padding:8px 12px; border-radius:8px; color:var(--muted); font:inherit; cursor:pointer; }
+  nav button.on { background:var(--brand); color:#fff; }
+  nav .badge { background:var(--bad); color:#fff; border-radius:10px; font-size:11px; padding:1px 6px; margin-left:4px; }
+  .spacer { flex:1; }
+  button.btn { background:var(--brand); color:#fff; border:0; padding:8px 14px; border-radius:8px; font:inherit; cursor:pointer; }
+  button.btn:hover { background:var(--brand-d); }
+  button.btn:disabled { opacity:.6; cursor:wait; }
+  button.btn.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  button.btn.ok { background:var(--ok); } button.btn.bad { background:var(--bad); }
+  button.btn.sm { padding:4px 10px; font-size:12px; }
+  a.btn { text-decoration:none; display:inline-block; }
+  main { padding:16px; }
+  .search { flex:1 1 220px; max-width:360px; }
+  .board { display:grid; grid-template-columns:repeat(7, minmax(200px,1fr)); gap:10px; overflow-x:auto; align-items:start; scroll-snap-type:x proximity; padding-bottom:8px; }
+  .col { background:var(--card); border:1px solid var(--line); border-radius:10px; min-height:160px; scroll-snap-align:start; }
+  .col.over { outline:2px dashed var(--brand); }
+  .col h3 { margin:0; padding:10px 12px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); display:flex; justify-content:space-between; border-bottom:1px solid var(--line); }
+  .col .cards { padding:8px; display:flex; flex-direction:column; gap:8px; }
+  .lead { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; cursor:pointer; }
+  .lead:hover { border-color:var(--brand); }
+  .lead b { display:block; overflow-wrap:anywhere; } .lead small { color:var(--muted); overflow-wrap:anywhere; }
+  .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; background:var(--line); color:var(--muted); margin-top:4px; }
+  .tag.late { background:var(--bad); color:#fff; } .tag.today { background:var(--warn); color:#fff; } .tag.won { background:var(--ok); color:#fff; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .panel h2 { margin:0 0 12px; font-size:15px; }
+  .fu { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .fu:last-child { border:0; } .grow { flex:1; min-width:140px; overflow-wrap:anywhere; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .kpi span { color:var(--muted); font-size:12px; } .kpi b { display:block; font-size:22px; margin-top:4px; }
+  .bar { height:10px; background:var(--line); border-radius:6px; overflow:hidden; margin-top:6px; } .bar i { display:block; height:100%; background:var(--brand); }
+  .funnel .row { display:flex; align-items:center; gap:10px; margin:6px 0; } .funnel .row span { width:130px; color:var(--muted); }
+  .funnel .row .bar { flex:1; margin:0; } .funnel .row b { width:30px; text-align:right; } .funnel .row small { width:44px; color:var(--muted); }
+  dialog { border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--text); padding:0; width:min(660px,96vw); max-height:92vh; }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  .dlg { padding:18px; display:flex; flex-direction:column; gap:12px; }
+  .dlg h2 { margin:0; font-size:17px; overflow-wrap:anywhere; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  input, textarea, select { font:inherit; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); width:100%; }
+  textarea { min-height:70px; resize:vertical; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .tl { max-height:220px; overflow:auto; font-size:13px; border-top:1px solid var(--line); padding-top:8px; }
+  .tl div { padding:3px 0; color:var(--muted); } .tl b { color:var(--text); font-weight:500; }
+  .empty { color:var(--muted); padding:8px 0; }
+  .login { max-width:380px; margin:12vh auto; padding:24px; background:var(--card); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column; gap:12px; }
+  .err { color:var(--bad); min-height:1.2em; }
+  #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:8px; z-index:99; max-width:90vw; }
+  @media (max-width:700px) {
+    header { position:static; }
+    .grid2 { grid-template-columns:1fr; }
+    .board { grid-template-columns:repeat(7, 78vw); }
+    .funnel .row span { width:96px; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<dialog id="dlg"></dialog>
+<div id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"
+        integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
+<script>
+'use strict';
+// Só a chave PÚBLICA fica aqui. A chave secreta (service_role) NUNCA entra neste arquivo.
+const SUPABASE_URL = 'https://edvkntjdlovqshjpuafv.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_zbWLRhH0GppFl3ZmSY36Yw_ku8TP6V1';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+
+const TZ = 'America/Sao_Paulo';
+const ETAPAS = [
+  ['novo', 'Novo lead'], ['contato', 'Contato feito'], ['conversa', 'Em conversa'],
+  ['agendada', 'Reunião agendada'], ['realizada', 'Reunião realizada'], ['fechado', 'Fechado'], ['perdido', 'Perdido'],
+];
+const ROTULO = Object.fromEntries(ETAPAS);
+
+// ---------- utilitários (todo texto entra como TEXTO, nunca como HTML) ----------
+const $ = (s, el = document) => el.querySelector(s);
+function h(tag, props = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, '');
+    else el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+const brl = (n) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const pct = (n) => Math.round((Number(n) || 0) * 100) + '%';
+const fmtDT = (iso) => iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' }) : '';
+const fmtDay = (d) => d ? d.split('-').reverse().join('/') : '';
+const hoje = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+const toLocalInput = (iso) => iso ? new Date(iso).toLocaleString('sv-SE', { timeZone: TZ }).replace(' ', 'T').slice(0, 16) : '';
+const fromLocalInput = (v) => v ? new Date(v + ':00-03:00').toISOString() : null; // Brasília = UTC-3 (sem horário de verão)
+const semAcento = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const waLink = (tel, msg) => `https://wa.me/${String(tel).replace(/\D/g, '')}` + (msg ? `?text=${encodeURIComponent(msg)}` : '');
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+}
+async function run(promise, falha = 'Algo deu errado. Tente de novo.') {
+  const { data, error } = await promise;
+  if (error) { console.error(error); toast(falha); throw error; }
+  return data;
+}
+
+// Janela de diálogo reaproveitável
+const dlg = $('#dlg');
+function openDialog(...content) { dlg.replaceChildren(h('div', { class: 'dlg' }, ...content)); if (!dlg.open) dlg.showModal(); }
+function closeDialog() { if (dlg.open) dlg.close(); }
+function ask(titulo, campos) {
+  return new Promise((resolve) => {
+    const inputs = campos.map((c) => {
+      const el = c.type === 'textarea' ? h('textarea', { name: c.name }) : h('input', { name: c.name, type: c.type || 'text', step: c.step, min: c.min });
+      if (c.value != null) el.value = c.value;
+      return h('label', {}, c.label, el);
+    });
+    let feito = false;
+    const fim = (v) => { if (!feito) { feito = true; closeDialog(); resolve(v); } };
+    dlg.onclose = () => fim(null);
+    openDialog(h('h2', {}, titulo), ...inputs, h('div', { class: 'actions' },
+      h('button', { class: 'btn', onclick: () => fim(Object.fromEntries(inputs.map((l) => [l.lastChild.name, l.lastChild.value]))) }, 'Confirmar'),
+      h('button', { class: 'btn ghost', onclick: () => fim(null) }, 'Cancelar')));
+    inputs[0]?.lastChild.focus();
+  });
+}
+
+// ---------- estado ----------
+const S = { leads: [], proximo: {}, cfg: {}, view: 'funil', q: '', mes: null, atrasados: 0 };
+const app = $('#app');
+
+// ---------- login ----------
+function telaLogin(msg = '') {
+  const email = h('input', { type: 'email', autocomplete: 'username', required: true });
+  const senha = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+  const erro = h('div', { class: 'err' }, msg);
+  const btn = h('button', { class: 'btn', type: 'submit' }, 'Entrar');
+  const form = h('form', { class: 'login' }, h('h1', { style: 'margin:0;font-size:20px' }, 'Meu CRM'),
+    h('label', {}, 'E-mail', email), h('label', {}, 'Senha', senha), erro, btn);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault(); btn.disabled = true; erro.textContent = '';
+    const { error } = await sb.auth.signInWithPassword({ email: email.value.trim(), password: senha.value });
+    btn.disabled = false;
+    if (error) { erro.textContent = 'E-mail ou senha incorretos.'; senha.value = ''; }
+    // se deu certo, onAuthStateChange abre o painel
+  });
+  app.replaceChildren(form); email.focus();
+}
+
+// ---------- dados ----------
+async function carregar() {
+  const leads = []; // o Supabase devolve no máximo 1000 linhas por vez: busca em páginas
+  for (let ini = 0; ; ini += 1000) {
+    const lote = await run(sb.from('leads').select('*').order('atualizado_em', { ascending: false }).range(ini, ini + 999));
+    leads.push(...lote); if (lote.length < 1000) break;
+  }
+  S.leads = leads;
+  const fus = await run(sb.from('followups').select('id,lead_id,numero,data_prevista').eq('status', 'pendente').order('data_prevista'));
+  S.proximo = {}; S.fups = fus;
+  for (const f of fus) if (!S.proximo[f.lead_id]) S.proximo[f.lead_id] = f; // o mais próximo de cada lead
+  const cfg = await run(sb.from('configuracoes').select('chave,valor'));
+  S.cfg = Object.fromEntries(cfg.map((c) => [c.chave, c.valor]));
+  S.atrasados = fus.filter((f) => f.data_prevista <= hoje()).length;
+}
+const leadsFiltrados = () => {
+  const q = semAcento(S.q).trim(); if (!q) return S.leads;
+  const qd = q.replace(/\D/g, '');
+  return S.leads.filter((l) => semAcento(l.nome).includes(q) || semAcento(l.email).includes(q) || (qd && l.telefone.includes(qd)));
+};
+
+// ---------- estrutura principal ----------
+async function abrirApp() {
+  const { data: ok, error } = await sb.rpc('usuario_autorizado');
+  if (error || !ok) { await sb.auth.signOut(); return telaLogin('Este e-mail não tem permissão para usar o CRM.'); }
+  const busca = h('input', { class: 'search', type: 'search', placeholder: 'Buscar nome, e-mail ou telefone', 'aria-label': 'Buscar',
+    oninput: (e) => { S.q = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } });
+  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['config', 'Config']].map(([id, nome]) =>
+    h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
+  app.replaceChildren(
+    h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, h('div', { class: 'spacer' }),
+      h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
+      h('button', { class: 'btn ghost', onclick: () => sb.auth.signOut() }, 'Sair')),
+    h('main', { id: 'view' }));
+  await carregar(); desenhar();
+}
+async function desenhar() {
+  document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.view));
+  const b = $('#badge'); if (b) { b.textContent = S.atrasados; b.hidden = !S.atrasados; }
+  const v = $('#view'); if (!v) return;
+  try {
+    if (S.view === 'funil') v.replaceChildren(quadro());
+    else if (S.view === 'hoje') v.replaceChildren(...telaHoje());
+    else if (S.view === 'painel') v.replaceChildren(...await telaPainel());
+    else v.replaceChildren(...telaConfig());
+  } catch (e) { console.error(e); }
+}
+async function recarregar() { await carregar(); desenhar(); }
+
+// ---------- funil ----------
+function quadro() {
+  const lista = leadsFiltrados(), t = hoje();
+  return h('div', { class: 'board' }, ...ETAPAS.map(([id, nome]) => {
+    const itens = lista.filter((l) => l.etapa === id);
+    const col = h('div', { class: 'col', 'data-etapa': id },
+      h('h3', {}, h('span', {}, nome), h('span', {}, itens.length)),
+      h('div', { class: 'cards' }, itens.length ? itens.map((l) => cartao(l, t)) : h('div', { class: 'empty' }, '—')));
+    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('over'); });
+    col.addEventListener('dragleave', () => col.classList.remove('over'));
+    col.addEventListener('drop', (e) => {
+      e.preventDefault(); col.classList.remove('over');
+      const lead = S.leads.find((l) => l.id === e.dataTransfer.getData('text/plain'));
+      if (lead && lead.etapa !== id) mover(lead, id);
+    });
+    return col;
+  }));
+}
+function cartao(l, t) {
+  const fu = S.proximo[l.id];
+  let tag = null;
+  if (l.etapa === 'fechado') tag = h('span', { class: 'tag won' }, brl(l.valor_venda));
+  else if (fu) tag = h('span', { class: 'tag ' + (fu.data_prevista < t ? 'late' : fu.data_prevista === t ? 'today' : '') }, `Follow-up ${fu.numero} • ${fmtDay(fu.data_prevista).slice(0, 5)}`);
+  else if (l.etapa === 'agendada' && l.reuniao_em) tag = h('span', { class: 'tag' }, fmtDT(l.reuniao_em));
+  const el = h('div', { class: 'lead', draggable: 'true', onclick: () => abrirLead(l.id) },
+    h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email), tag ? h('div', {}, tag) : null);
+  el.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', l.id));
+  return el;
+}
+async function mover(lead, etapa) {
+  const upd = { etapa };
+  if (etapa === 'fechado') {
+    const r = await ask('Valor da venda', [{ name: 'v', label: 'Valor (R$)', type: 'number', step: '0.01', min: '0', value: lead.valor_venda || '' }]);
+    if (!r) return; upd.valor_venda = Number(r.v) || 0;
+  }
+  if (etapa === 'perdido') {
+    const r = await ask('Motivo da perda (opcional)', [{ name: 'm', label: 'Motivo', value: lead.motivo_perda || '' }]);
+    if (!r) return; upd.motivo_perda = r.m.slice(0, 500);
+  }
+  if (etapa === 'agendada') {
+    const r = await ask('Reunião agendada', [{ name: 'd', label: 'Data e hora (opcional)', type: 'datetime-local', value: toLocalInput(lead.reuniao_em) }]);
+    if (!r) return; if (r.d) upd.reuniao_em = fromLocalInput(r.d);
+  }
+  await run(sb.from('leads').update(upd).eq('id', lead.id), 'Não foi possível mover o lead.');
+  await recarregar();
+}
+
+// ---------- novo lead ----------
+async function novoLead() {
+  const r = await ask('Novo lead', [
+    { name: 'nome', label: 'Nome' }, { name: 'telefone', label: 'Telefone / WhatsApp' }, { name: 'email', label: 'E-mail', type: 'email' }]);
+  if (!r) return;
+  if (!r.nome.trim()) return toast('O nome é obrigatório.');
+  await run(sb.from('leads').insert({ nome: r.nome.trim().slice(0, 200), telefone: r.telefone.slice(0, 20), email: r.email.trim().slice(0, 254), origem: 'manual' }), 'Não foi possível criar o lead.');
+  await recarregar();
+}
+
+// ---------- card aberto ----------
+async function abrirLead(id) {
+  const [lead] = await run(sb.from('leads').select('*').eq('id', id));
+  const [hist, notas, fus] = await Promise.all([
+    run(sb.from('historico_etapas').select('*').eq('lead_id', id).order('entrou_em')),
+    run(sb.from('anotacoes').select('*').eq('lead_id', id).order('criado_em', { ascending: false })),
+    run(sb.from('followups').select('*').eq('lead_id', id).order('numero')),
+  ]);
+  if (!lead) return;
+  const campo = (rot, el) => h('label', {}, rot, el);
+  const nome = h('input', { value: lead.nome }), tel = h('input', { value: lead.telefone, inputmode: 'tel' }), mail = h('input', { value: lead.email, type: 'email' });
+  const valor = h('input', { type: 'number', step: '0.01', min: '0', value: lead.valor_venda || '' });
+  const reun = h('input', { type: 'datetime-local', value: toLocalInput(lead.reuniao_em) });
+  const mudar = h('select', {}, ...ETAPAS.map(([e, n]) => h('option', { value: e, selected: e === lead.etapa }, n)));
+  const nota = h('textarea', { placeholder: 'Registre o que conversaram...' });
+
+  // Próxima ação com data: o follow-up pendente mais próximo, ou a reunião marcada
+  const pend = fus.find((f) => f.status === 'pendente');
+  const msgs = S.cfg.mensagens || [];
+  let acao;
+  if (pend) {
+    const texto = (msgs[pend.numero - 1] || '').replaceAll('{nome}', lead.nome.split(' ')[0]);
+    acao = h('div', { class: 'fu' }, h('div', { class: 'grow' }, h('b', {}, `Follow-up ${pend.numero}/4 por WhatsApp`), h('br'), h('small', {}, 'Para ' + fmtDay(pend.data_prevista))),
+      lead.telefone ? h('a', { class: 'btn sm', href: waLink(lead.telefone, texto), target: '_blank', rel: 'noopener noreferrer' }, 'Abrir WhatsApp') : null,
+      h('button', { class: 'btn sm ok', onclick: async () => { await run(sb.from('followups').update({ status: 'feito' }).eq('id', pend.id)); await recarregar(); abrirLead(id); } }, 'Feito'));
+  } else if (lead.etapa === 'agendada' && lead.reuniao_em) acao = h('div', { class: 'fu' }, h('b', {}, 'Reunião em ' + fmtDT(lead.reuniao_em)));
+  else acao = h('div', { class: 'empty' }, lead.etapa === 'novo' ? 'Fazer o primeiro contato.' : 'Sem ação agendada.');
+
+  dlg.onclose = null;
+  openDialog(
+    h('h2', {}, lead.nome, ' ', h('span', { class: 'tag' }, ROTULO[lead.etapa])),
+    h('div', { class: 'grid2' }, campo('Nome', nome), campo('Telefone', tel), campo('E-mail', mail), campo('Valor da venda (R$)', valor),
+      campo('Reunião marcada para', reun), campo('Mover para etapa', mudar)),
+    lead.motivo_perda ? h('div', {}, h('b', {}, 'Motivo da perda: '), lead.motivo_perda) : null,
+    h('div', {}, h('b', {}, 'Próxima ação'), acao),
+    h('div', {}, h('b', {}, 'Datas das etapas'), h('div', { class: 'tl', style: 'max-height:none' },
+      hist.map((e) => h('div', {}, fmtDT(e.entrou_em), ' — ', h('b', {}, ROTULO[e.etapa]), e.pulada ? ' (passou direto)' : '')))),
+    campo('Nova anotação', nota),
+    h('div', { class: 'actions' }, h('button', { class: 'btn sm ghost', onclick: async () => {
+      if (!nota.value.trim()) return;
+      await run(sb.from('anotacoes').insert({ lead_id: id, tipo: 'nota', texto: nota.value.trim().slice(0, 5000) })); abrirLead(id);
+    } }, 'Adicionar anotação'), lead.telefone ? h('a', { class: 'btn sm ghost', href: waLink(lead.telefone), target: '_blank', rel: 'noopener noreferrer' }, 'WhatsApp') : null),
+    h('div', {}, h('b', {}, 'Histórico'), h('div', { class: 'tl' }, notas.map((a) => h('div', {}, fmtDT(a.criado_em), ' — ', h('b', {}, a.texto))))),
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn', onclick: async () => {
+        const upd = { nome: nome.value.trim() || 'Sem nome', telefone: tel.value.slice(0, 20), email: mail.value.trim().slice(0, 254), valor_venda: Number(valor.value) || 0, reuniao_em: fromLocalInput(reun.value) };
+        await run(sb.from('leads').update(upd).eq('id', id), 'Não foi possível salvar.');
+        if (mudar.value !== lead.etapa) { closeDialog(); await mover({ ...lead, ...upd }, mudar.value); } else { closeDialog(); await recarregar(); }
+      } }, 'Salvar'),
+      h('button', { class: 'btn ghost', onclick: closeDialog }, 'Fechar'), h('div', { class: 'spacer' }),
+      h('button', { class: 'btn bad sm', onclick: async () => {
+        if (!confirm('Excluir este lead e todo o histórico? Não dá para desfazer.')) return;
+        await run(sb.from('leads').delete().eq('id', id)); closeDialog(); await recarregar();
+      } }, 'Excluir')));
+}
+
+// ---------- hoje ----------
+function telaHoje() {
+  const t = hoje(), msgs = S.cfg.mensagens || [], porId = Object.fromEntries(S.leads.map((l) => [l.id, l]));
+  const q = semAcento(S.q).trim();
+  const linhas = (S.fups || []).map((f) => ({ f, l: porId[f.lead_id] })).filter((x) => x.l && (!q || semAcento(x.l.nome).includes(q)));
+  const linha = ({ f, l }) => {
+    const texto = (msgs[f.numero - 1] || '').replaceAll('{nome}', l.nome.split(' ')[0]);
+    const atrasado = f.data_prevista < t;
+    return h('div', { class: 'fu' },
+      h('div', { class: 'grow' }, h('b', {}, l.nome), ' ', h('span', { class: 'tag' }, `Follow-up ${f.numero}/4`), ' ',
+        h('span', { class: 'tag ' + (atrasado ? 'late' : f.data_prevista === t ? 'today' : '') }, (atrasado ? 'atrasado • ' : '') + fmtDay(f.data_prevista))),
+      l.telefone ? h('a', { class: 'btn sm', href: waLink(l.telefone, texto), target: '_blank', rel: 'noopener noreferrer' }, 'Abrir WhatsApp') : h('small', {}, 'sem telefone'),
+      h('button', { class: 'btn sm ok', onclick: async () => { await run(sb.from('followups').update({ status: 'feito' }).eq('id', f.id)); await recarregar(); } }, 'Feito'),
+      h('button', { class: 'btn sm ghost', onclick: () => abrirLead(l.id) }, 'Abrir lead'));
+  };
+  const devidos = linhas.filter((x) => x.f.data_prevista <= t), futuros = linhas.filter((x) => x.f.data_prevista > t && x.f.data_prevista <= somaDias(t, 7));
+  const novos = leadsFiltrados().filter((l) => l.etapa === 'novo');
+  return [
+    h('div', { class: 'panel' }, h('h2', {}, `Follow-ups de hoje e atrasados (${devidos.length})`), devidos.length ? devidos.map(linha) : h('div', { class: 'empty' }, 'Nada pendente. 🎉')),
+    h('div', { class: 'panel' }, h('h2', {}, `Próximos 7 dias (${futuros.length})`), futuros.length ? futuros.map(linha) : h('div', { class: 'empty' }, 'Nada agendado.')),
+    h('div', { class: 'panel' }, h('h2', {}, `Leads novos aguardando contato (${novos.length})`), novos.length ? novos.map((l) => h('div', { class: 'fu' },
+      h('div', { class: 'grow' }, h('b', {}, l.nome), ' ', h('small', {}, `${l.origem} • ${fmtDT(l.criado_em)}`)),
+      l.telefone ? h('a', { class: 'btn sm', href: waLink(l.telefone, `Oi ${l.nome.split(' ')[0]}, tudo bem?`), target: '_blank', rel: 'noopener noreferrer' }, 'WhatsApp') : null,
+      h('button', { class: 'btn sm ghost', onclick: () => abrirLead(l.id) }, 'Abrir'))) : h('div', { class: 'empty' }, 'Nenhum lead novo esperando.')),
+  ];
+}
+function somaDias(d, n) { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd + n)).toISOString().slice(0, 10); }
+
+// ---------- painel do mês ----------
+async function telaPainel() {
+  const p = await run(sb.rpc('painel_mes', { p_mes: S.mes }), 'Não foi possível carregar o painel.');
+  S.mes = p.mes;
+  const meta = p.meta || {}, c = p.chegaram;
+  const kpi = (rot, val) => h('div', { class: 'kpi' }, h('span', {}, rot), h('b', {}, val));
+  const progresso = (rot, atual, alvo, fmt) => alvo > 0 ? h('div', { style: 'margin-bottom:12px' }, h('span', {}, `${rot}: ${fmt(atual)} de ${fmt(alvo)} (${pct(atual / alvo)})`),
+    h('div', { class: 'bar' }, h('i', { style: `width:${Math.min(100, atual / alvo * 100)}%` }))) : null;
+  const fluxo = ['novo', 'contato', 'conversa', 'agendada', 'realizada', 'fechado'];
+  return [
+    h('div', { class: 'panel actions' }, h('b', {}, 'Mês:'), h('input', { type: 'month', value: p.mes, style: 'width:auto', onchange: (e) => { S.mes = e.target.value || null; desenhar(); } })),
+    h('div', { class: 'kpis' }, kpi('Leads novos', p.leads), kpi('Reuniões agendadas', c.agendada), kpi('Reuniões realizadas', p.reunioes), kpi('Vendas', p.vendas),
+      kpi('Faturamento', brl(p.receita)), kpi('Reunião → venda', pct(p.conversao_reuniao_venda)), kpi('Lead → reunião', pct(p.conversao_lead_reuniao)),
+      kpi('Ticket médio', brl(p.ticket_medio)), kpi('Follow-ups feitos', p.followups_feitos), kpi('Perdidos', p.perdidos)),
+    h('div', { class: 'panel' }, h('h2', {}, 'Meta do mês'),
+      (meta.receita > 0 || meta.vendas > 0) ? [progresso('Faturamento', p.receita, meta.receita, brl), progresso('Vendas', p.vendas, meta.vendas, (n) => n)]
+        : h('div', { class: 'empty' }, 'Ainda sem meta. Defina em Config quando quiser.')),
+    h('div', { class: 'panel funnel' }, h('h2', {}, 'Chegaram a cada etapa no mês'),
+      h('p', { class: 'empty', style: 'margin-top:-6px' }, 'Cada lead conta pela data em que entrou na etapa, mesmo que já tenha avançado. A % é sobre a etapa anterior.'),
+      fluxo.map((id, i) => { const n = c[id], prev = i ? c[fluxo[i - 1]] : 0;
+        return h('div', { class: 'row' }, h('span', {}, ROTULO[id]), h('div', { class: 'bar' }, h('i', { style: `width:${n / Math.max(1, c.novo) * 100}%` })), h('b', {}, n), h('small', {}, i && prev ? pct(n / prev) : '')); }),
+      h('div', { class: 'row' }, h('span', {}, 'Perdido'), h('div', { class: 'bar' }, h('i', { style: `width:${c.perdido / Math.max(1, c.novo) * 100}%;background:var(--bad)` })), h('b', {}, c.perdido), h('small', {}))),
+    h('div', { class: 'panel funnel' }, h('h2', {}, 'Funil agora (todos os leads)'),
+      ETAPAS.map(([id, nome]) => { const n = p.agora[id], max = Math.max(1, ...Object.values(p.agora));
+        return h('div', { class: 'row' }, h('span', {}, nome), h('div', { class: 'bar' }, h('i', { style: `width:${n / max * 100}%` })), h('b', {}, n), h('small', {})); })),
+  ];
+}
+
+// ---------- config ----------
+function telaConfig() {
+  const meta = S.cfg.meta || { receita: 0, vendas: 0 }, msgs = S.cfg.mensagens || [];
+  const rec = h('input', { type: 'number', min: '0', value: meta.receita || '' }), ven = h('input', { type: 'number', min: '0', value: meta.vendas || '' });
+  const tpl = msgs.map((m, i) => h('label', {}, `Follow-up ${i + 1}`, h('textarea', {}, m)));
+  return [
+    h('div', { class: 'panel' }, h('h2', {}, 'Meta mensal'), h('div', { class: 'grid2' }, h('label', {}, 'Faturamento (R$)', rec), h('label', {}, 'Nº de vendas', ven))),
+    h('div', { class: 'panel' }, h('h2', {}, 'Mensagens de follow-up (WhatsApp)'),
+      h('p', { class: 'empty' }, 'Use {nome} para o primeiro nome do lead. Dias: 1º = 1 dia após a reunião, 2º = +3, 3º = +1, 4º = +2.'), tpl),
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn', onclick: async () => {
+        await run(sb.from('configuracoes').upsert([
+          { chave: 'meta', valor: { receita: Number(rec.value) || 0, vendas: Number(ven.value) || 0 } },
+          { chave: 'mensagens', valor: tpl.map((l) => l.lastChild.value.slice(0, 1000)) }]), 'Não foi possível salvar.');
+        await carregar(); toast('Salvo!');
+      } }, 'Salvar configurações'),
+      h('button', { class: 'btn ghost', onclick: exportarCsv }, 'Exportar leads (CSV)')),
+    h('p', { class: 'empty' }, 'Dica: exporte o CSV toda semana. O plano gratuito do Supabase não faz backup automático.'),
+  ];
+}
+function exportarCsv() {
+  const cel = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replaceAll('"', '""') + '"'; }; // evita fórmulas maliciosas no Excel
+  const cols = ['nome', 'email', 'telefone', 'etapa', 'origem', 'valor_venda', 'motivo_perda', 'reuniao_em', 'reuniao_realizada_em', 'fechado_em', 'criado_em'];
+  const csv = '﻿' + [cols.join(',')].concat(S.leads.map((l) => cols.map((c) => cel(l[c])).join(','))).join('\r\n');
+  const a = h('a', { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })), download: `leads-${hoje()}.csv` });
+  document.body.append(a); a.click(); a.remove();
+}
+
+// ---------- início ----------
+sb.auth.onAuthStateChange((evento, sessao) => {
+  if (evento === 'SIGNED_OUT' || !sessao) { S.leads = []; S.cfg = {}; S.proximo = {}; closeDialog(); telaLogin(); }
+  else if (evento === 'SIGNED_IN' || evento === 'INITIAL_SESSION') abrirApp();
+});
+</script>
+</body>
+</html>
