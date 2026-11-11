@@ -54,6 +54,9 @@
   dialog.ganha { border:2px solid var(--ok); border-top:8px solid var(--ok); }
   dialog.perdida { border:2px solid var(--bad); border-top:8px solid var(--bad); }
   .tag.lost { background:var(--bad); color:#fff; }
+  .panel.resumo { font-weight:700; padding:10px 14px; margin-bottom:12px; }
+  .panel.resumo.ganha { background:rgba(22,163,74,.16); border-color:var(--ok); }
+  .panel.resumo.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); }
   .tag.hot { background:var(--bad); color:#fff; } .tag.warm { background:var(--warn); color:#fff; } .tag.rep { background:var(--brand); color:#fff; }
   .chips { display:flex; gap:6px; flex-wrap:wrap; } .chips .tag { margin:0; }
   .qa { padding:8px 0; border-bottom:1px solid var(--line); } .qa:last-child { border:0; }
@@ -125,9 +128,9 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSe
 const TZ = 'America/Sao_Paulo';
 const ETAPAS = [
   ['novo', 'Novo lead'], ['contato', 'Contato feito'], ['conversa', 'Em conversa'],
-  ['agendada', 'Reunião agendada'], ['realizada', 'Reunião realizada'], ['proposta', 'Proposta enviada'], ['followup', 'Follow-up'], ['fechado', 'Fechado'], ['perdido', 'Perdido'],
+  ['agendada', 'Reunião agendada'], ['realizada', 'Reunião realizada'], ['proposta', 'Proposta enviada'], ['followup', 'Follow-up'],
 ];
-const ROTULO = Object.fromEntries(ETAPAS);
+const ROTULO = { ...Object.fromEntries(ETAPAS), fechado: 'Negociação ganha', perdido: 'Negociação perdida' }; // os dois últimos aparecem só no histórico
 const TIPO_ATIV = { followup: "Follow up", ligacao: "Ligação", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Outro" };
 
 // ---------- utilitários (todo texto entra como TEXTO, nunca como HTML) ----------
@@ -317,13 +320,14 @@ async function aplicarRegraFollowup() {
 }
 
 // ---------- funil ----------
+// Situação da negociação: em andamento, ganha ou perdida. O card NÃO muda de coluna: só muda de cor.
+function passaSituacao(l) {
+  return S.sit === 'todas' || (S.sit === 'andamento' && l.situacao === 'andamento')
+    || (S.sit === 'ganhas' && l.situacao === 'ganha') || (S.sit === 'perdidas' && l.situacao === 'perdida');
+}
 function quadro() {
-  const lista = leadsFiltrados(), t = hoje();
-  if (S.sit === 'ganhas' || S.sit === 'perdidas') return listaEncerradas(lista, S.sit === 'ganhas');
-  // "Perdido" não é mais coluna: perdidas aparecem pelo filtro. Em andamento esconde também as ganhas.
-  // Em "Todas" aparecem também Fechado (ganhas) e Perdido (perdidas), lado a lado.
-  const colunas = ETAPAS.filter(([id]) => S.sit === 'todas' || (id !== 'perdido' && id !== 'fechado'));
-  return h('div', { class: 'board', style: `--cols:${colunas.length}` }, ...colunas.map(([id, nome]) => {
+  const lista = leadsFiltrados().filter(passaSituacao), t = hoje();
+  const board = h('div', { class: 'board', style: `--cols:${ETAPAS.length}` }, ...ETAPAS.map(([id, nome]) => {
     const itens = lista.filter((l) => l.etapa === id);
     const col = h('div', { class: 'col', 'data-etapa': id, style: `--c:${COR[id][0]};--c-bg:${COR[id][1]}` },
       h('h3', {}, h('span', {}, COR[id][2] + ' ' + nome), h('span', { class: 'contagem' }, itens.length)),
@@ -337,32 +341,22 @@ function quadro() {
     });
     return col;
   }));
-}
-
-// Lista de negociações já encerradas: ganhas (Fechado) ou perdidas
-function listaEncerradas(lista, ganhas) {
-  const itens = lista.filter((l) => l.etapa === (ganhas ? 'fechado' : 'perdido'))
-    .sort((a, b) => String(b.fechado_em || '').localeCompare(String(a.fechado_em || '')));
-  const total = itens.reduce((s, l) => s + Number(l.valor_venda || 0), 0);
-  return h('div', { class: 'panel' },
-    h('h2', {}, ganhas ? `Negociações ganhas (${itens.length}) • ${brl(total)}` : `Negociações perdidas (${itens.length})`),
-    itens.length ? itens.map((l) => h('div', { class: 'fu ' + (ganhas ? 'ganha' : 'perdida'), style: 'cursor:pointer', onclick: () => abrirLead(l.id) },
-      h('div', { class: 'grow' }, h('b', {}, l.nome), ' ', TEMP[l.temperatura] ? h('span', { class: 'tag ' + TEMP[l.temperatura][1] }, TEMP[l.temperatura][0]) : null,
-        h('br'), h('small', {}, l.telefone ? '+' + l.telefone : l.email)),
-      ganhas ? h('span', { class: 'tag won' }, brl(l.valor_venda))
-        : h('small', {}, l.motivo_perda ? 'Motivo: ' + l.motivo_perda : 'Sem motivo registrado'),
-      h('small', {}, fmtDT(l.fechado_em))))
-      : h('div', { class: 'empty' }, ganhas ? 'Nenhuma negociação ganha ainda.' : 'Nenhuma negociação perdida.'));
+  if (S.sit !== 'ganhas' && S.sit !== 'perdidas') return board;
+  const ganhas = S.sit === 'ganhas', n = lista.length, total = lista.reduce((s, l) => s + Number(l.valor_venda || 0), 0);
+  return h('div', {}, h('div', { class: 'panel resumo ' + (ganhas ? 'ganha' : 'perdida') },
+    ganhas ? `🏆 ${n} ${n === 1 ? 'negociação ganha' : 'negociações ganhas'} • ${brl(total)}`
+      : `💔 ${n} ${n === 1 ? 'negociação perdida' : 'negociações perdidas'}`), board);
 }
 function cartao(l, t) {
   const fu = S.proximo[l.id];
   let tag = null;
-  if (l.etapa === 'fechado') tag = h('span', { class: 'tag won' }, brl(l.valor_venda));
+  if (l.situacao === 'ganha') tag = h('span', { class: 'tag won' }, '🏆 ' + brl(l.valor_venda));
+  else if (l.situacao === 'perdida') tag = h('span', { class: 'tag lost' }, '💔 ' + (l.motivo_perda || 'Perdida'));
   else if (fu) tag = h('span', { class: 'tag ' + (fu.data_prevista < t ? 'late' : fu.data_prevista === t ? 'today' : '') }, `Follow-up ${fu.numero} • ${fmtDay(fu.data_prevista).slice(0, 5)}`);
   else if (l.etapa === 'agendada' && l.reuniao_em) tag = h('span', { class: 'tag' }, fmtDT(l.reuniao_em));
   const temp = TEMP[l.temperatura], rep = (S.etiq[l.id] || []).length;
-  const acoesFu = (l.etapa === 'followup' && fu) ? cartaoAcoesFollowup(l, fu) : null;
-  const el = h('div', { class: 'lead' + (l.etapa === 'fechado' ? ' ganha' : l.etapa === 'perdido' ? ' perdida' : ''), draggable: 'true', onclick: () => abrirLead(l.id) },
+  const acoesFu = (l.etapa === 'followup' && fu && l.situacao === 'andamento') ? cartaoAcoesFollowup(l, fu) : null;
+  const el = h('div', { class: 'lead' + (l.situacao === 'ganha' ? ' ganha' : l.situacao === 'perdida' ? ' perdida' : ''), draggable: 'true', onclick: () => abrirLead(l.id) },
     h('div', { class: 'topo' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, (l.nome.trim()[0] || '?').toUpperCase()),
       h('div', { style: 'min-width:0' }, h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email))),
     (temp || rep || tag) ? h('div', { class: 'chips', style: 'margin-top:4px' },
@@ -389,23 +383,31 @@ function cartaoAcoesFollowup(l, fu) {
 }
 async function mover(lead, etapa) {
   const upd = { etapa };
-  if (etapa === 'fechado') {
-    const r = await ask('Valor da venda', [{ name: 'v', label: 'Valor (R$)', type: 'number', step: '0.01', min: '0', value: lead.valor_venda || '' }]);
-    if (!r) return; upd.valor_venda = Number(r.v) || 0;
-  }
-  if (etapa === 'perdido') {
-    const r = await ask('Por que a negociação foi perdida?', [{ name: 'm', label: 'Motivo da perda', type: 'select', required: true,
-      options: MOTIVOS_PERDA, value: MOTIVOS_PERDA.includes(lead.motivo_perda) ? lead.motivo_perda : '' }]);
-    if (!r) return; upd.motivo_perda = r.m;
-  }
   if (etapa === 'agendada') {
     const r = await ask('Reunião agendada', [{ name: 'd', label: 'Data e hora (opcional)', type: 'datetime-local', value: toLocalInput(lead.reuniao_em) }]);
     if (!r) return; if (r.d) upd.reuniao_em = fromLocalInput(r.d);
   }
   await run(sb.from('leads').update(upd).eq('id', lead.id), 'Não foi possível mover o lead.');
   if (etapa === 'agendada') celebrar();
-  if (etapa === 'fechado' && S.sit === 'andamento') toast('Negociação ganha! Para vê-la, use o filtro "Negociações: Ganhas".');
-  if (etapa === 'perdido' && S.sit !== 'perdidas' && S.sit !== 'todas') toast('Negociação marcada como perdida. Para vê-la, use o filtro "Negociações: Perdidas".');
+  await recarregar();
+}
+// Ganho / Perdido: o card continua na MESMA coluna, só muda de cor (verde ou vermelho)
+async function encerrar(lead, situacao) {
+  const upd = { situacao };
+  if (situacao === 'ganha') {
+    const r = await ask('Valor da venda', [{ name: 'v', label: 'Valor (R$)', type: 'number', step: '0.01', min: '0', value: lead.valor_venda || '' }]);
+    if (!r) return; upd.valor_venda = Number(r.v) || 0;
+  } else if (situacao === 'perdida') {
+    const r = await ask('Por que a negociação foi perdida?', [{ name: 'm', label: 'Motivo da perda', type: 'select', required: true,
+      options: MOTIVOS_PERDA, value: MOTIVOS_PERDA.includes(lead.motivo_perda) ? lead.motivo_perda : '' }]);
+    if (!r) return; upd.motivo_perda = r.m;
+  }
+  await run(sb.from('leads').update(upd).eq('id', lead.id), 'Não foi possível atualizar a negociação.');
+  const onde = ROTULO[lead.etapa];
+  if (situacao === 'andamento') toast('Negociação reaberta.');
+  else if (S.sit === 'andamento') toast((situacao === 'ganha' ? 'Negociação ganha! ' : 'Negociação perdida. ') + 'O card continua em "' + onde + '", agora em '
+    + (situacao === 'ganha' ? 'verde' : 'vermelho') + '. Para vê-lo, use o filtro "Negociações: ' + (situacao === 'ganha' ? 'Ganhas' : 'Perdidas') + '" ou "Todas".');
+  else toast(situacao === 'ganha' ? 'Negociação ganha! 🏆' : 'Negociação marcada como perdida.');
   await recarregar();
 }
 
@@ -515,20 +517,22 @@ async function abrirLead(id) {
         (env.respostas || []).map((qa) => h('div', { class: 'qa' }, h('small', {}, qa.pergunta), h('div', {}, qa.resposta)))))
     : h('div', { class: 'empty' }, 'Sem respostas guardadas (lead criado à mão ou antes desse recurso).');
 
-  const fechar = async (etapa) => { await guardar(); closeDialog(); await mover({ ...lead, nome: nome.value, valor_venda: Number(valor.value) || 0 }, etapa); };
+  const encerrarCard = async (situacao) => { await guardar(); closeDialog(); await encerrar({ ...lead, nome: nome.value, valor_venda: Number(valor.value) || 0 }, situacao); };
 
   dlg.onclose = () => { if (!dlg.open) recarregar(); };
   openDialog(
     h('div', { class: 'cardhead' },
-      h('h2', {}, lead.nome, ' ', h('span', { class: 'tag' + (lead.etapa === 'fechado' ? ' won' : lead.etapa === 'perdido' ? ' lost' : '') },
-        lead.etapa === 'fechado' ? 'Negociação ganha' : lead.etapa === 'perdido' ? 'Negociação perdida' : ROTULO[lead.etapa])),
+      h('h2', {}, lead.nome, ' ', h('span', { class: 'tag' }, ROTULO[lead.etapa]), ' ',
+        lead.situacao !== 'andamento' ? h('span', { class: 'tag ' + (lead.situacao === 'ganha' ? 'won' : 'lost') }, lead.situacao === 'ganha' ? '🏆 Negociação ganha' : '💔 Negociação perdida') : null),
       h('div', { class: 'actions' },
-        lead.etapa !== 'fechado' ? h('button', { class: 'btn ok', type: 'button', onclick: () => fechar('fechado') }, 'Ganho') : null,
-        lead.etapa !== 'perdido' ? h('button', { class: 'btn bad', type: 'button', onclick: () => fechar('perdido') }, 'Perdido') : null)),
+        lead.situacao === 'andamento' ? [
+          h('button', { class: 'btn ok', type: 'button', onclick: () => encerrarCard('ganha') }, 'Ganho'),
+          h('button', { class: 'btn bad', type: 'button', onclick: () => encerrarCard('perdida') }, 'Perdido'),
+        ] : h('button', { class: 'btn', type: 'button', onclick: () => encerrarCard('andamento') }, 'Reabrir negociação'))),
     h('div', { class: 'cardcols' },
       h('div', { class: 'col2' },
         h('div', { class: 'grid2' }, campo('Valor (R$)', valor), campo('Estágio', estagio)),
-        lead.motivo_perda ? h('div', {}, h('b', {}, 'Motivo da perda: '), lead.motivo_perda) : null,
+        (lead.situacao === 'perdida' && lead.motivo_perda) ? h('div', {}, h('b', {}, 'Motivo da perda: '), lead.motivo_perda) : null,
         secao('Pessoa',
           campo('Nome', nome),
           campo('Telefone', h('div', { class: 'linha' }, tel, lead.telefone ? h('a', { class: 'btn sm ghost', href: waLink(lead.telefone), target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no WhatsApp' }, 'WhatsApp') : null)),
@@ -572,8 +576,8 @@ async function abrirLead(id) {
         if (estagio.value !== lead.etapa) { closeDialog(); await mover({ ...lead, nome: nome.value, valor_venda: Number(valor.value) || 0 }, estagio.value); } else closeDialog();
       } }, 'Salvar')));
   dlg.classList.add('largo');
-  dlg.classList.toggle('ganha', lead.etapa === 'fechado');
-  dlg.classList.toggle('perdida', lead.etapa === 'perdido');
+  dlg.classList.toggle('ganha', lead.situacao === 'ganha');
+  dlg.classList.toggle('perdida', lead.situacao === 'perdida');
 }
 
 // ---------- hoje ----------
@@ -583,7 +587,7 @@ function telaHoje() {
   const itens = [
     ...(S.fups || []).map((f) => ({ tipo: 'fu', data: f.data_prevista, hora: '', f, l: porId[f.lead_id] })),
     ...(S.ativ || []).map((a) => ({ tipo: 'at', data: a.vence_em, hora: a.hora || '', a, l: porId[a.lead_id] })),
-  ].filter((x) => x.l && (!S.temp || x.l.temperatura === S.temp) && (!q || semAcento(x.l.nome).includes(q)))
+  ].filter((x) => x.l && x.l.situacao === 'andamento' && (!S.temp || x.l.temperatura === S.temp) && (!q || semAcento(x.l.nome).includes(q)))
     .sort((x, y) => (x.data + x.hora).localeCompare(y.data + y.hora));
   const linha = (x) => {
     const l = x.l, atrasado = x.data < t;
@@ -600,7 +604,7 @@ function telaHoje() {
       h('button', { class: 'btn sm ok', onclick: async () => { await run(sb.from('atividades').update({ feito_em: new Date().toISOString() }).eq('id', x.a.id)); await recarregar(); } }, 'Feito'), abrir);
   };
   const devidos = itens.filter((x) => x.data <= t), futuros = itens.filter((x) => x.data > t && x.data <= somaDias(t, 7));
-  const novos = leadsFiltrados().filter((l) => l.etapa === 'novo');
+  const novos = leadsFiltrados().filter((l) => l.etapa === 'novo' && l.situacao === 'andamento');
   return [
     h('div', { class: 'panel' }, h('h2', {}, `Atividades de hoje e atrasadas (${devidos.length})`), devidos.length ? devidos.map(linha) : h('div', { class: 'empty' }, 'Nada pendente. 🎉')),
     h('div', { class: 'panel' }, h('h2', {}, `Próximos 7 dias (${futuros.length})`), futuros.length ? futuros.map(linha) : h('div', { class: 'empty' }, 'Nada agendado.')),
@@ -636,9 +640,11 @@ async function telaPainel() {
       fluxo.map((id, i) => { const n = c[id], prev = base(id, i);
         return h('div', { class: 'row' }, h('span', {}, ROTULO[id]), h('div', { class: 'bar' }, h('i', { style: `width:${n / Math.max(1, c.novo) * 100}%` })), h('b', {}, n), h('small', {}, i && prev ? pct(n / prev) : '')); }),
       h('div', { class: 'row' }, h('span', {}, 'Perdido'), h('div', { class: 'bar' }, h('i', { style: `width:${c.perdido / Math.max(1, c.novo) * 100}%;background:var(--bad)` })), h('b', {}, c.perdido), h('small', {}))),
-    h('div', { class: 'panel funnel' }, h('h2', {}, 'Funil agora (todos os leads)'),
+    h('div', { class: 'panel funnel' }, h('h2', {}, 'Onde estão as negociações em andamento'),
       ETAPAS.map(([id, nome]) => { const n = p.agora[id], max = Math.max(1, ...Object.values(p.agora));
-        return h('div', { class: 'row' }, h('span', {}, nome), h('div', { class: 'bar' }, h('i', { style: `width:${n / max * 100}%` })), h('b', {}, n), h('small', {})); })),
+        return h('div', { class: 'row' }, h('span', {}, nome), h('div', { class: 'bar' }, h('i', { style: `width:${n / max * 100}%` })), h('b', {}, n), h('small', {})); }),
+      h('div', { class: 'row' }, h('span', {}, '🏆 Ganhas (total)'), h('div', { class: 'bar' }, h('i', { style: 'width:0' })), h('b', {}, p.ganhas_total ?? 0), h('small', {})),
+      h('div', { class: 'row' }, h('span', {}, '💔 Perdidas (total)'), h('div', { class: 'bar' }, h('i', { style: 'width:0' })), h('b', {}, p.perdidas_total ?? 0), h('small', {}))),
   ];
 }
 
@@ -664,7 +670,7 @@ function telaConfig() {
 }
 function exportarCsv() {
   const cel = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replaceAll('"', '""') + '"'; }; // evita fórmulas maliciosas no Excel
-  const cols = ['nome', 'email', 'telefone', 'etapa', 'origem', 'valor_venda', 'motivo_perda', 'reuniao_em', 'reuniao_realizada_em', 'fechado_em', 'criado_em'];
+  const cols = ['nome', 'email', 'telefone', 'etapa', 'origem', 'situacao', 'valor_venda', 'motivo_perda', 'reuniao_em', 'reuniao_realizada_em', 'fechado_em', 'criado_em'];
   const csv = '﻿' + [cols.join(',')].concat(S.leads.map((l) => cols.map((c) => cel(l[c])).join(','))).join('\r\n');
   const a = h('a', { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })), download: `leads-${hoje()}.csv` });
   document.body.append(a); a.click(); a.remove();
