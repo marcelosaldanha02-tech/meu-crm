@@ -54,6 +54,21 @@
   dialog.ganha { border:2px solid var(--ok); border-top:8px solid var(--ok); }
   dialog.perdida { border:2px solid var(--bad); border-top:8px solid var(--bad); }
   .tag.lost { background:var(--bad); color:#fff; }
+  /* Tela de Metas: só verde. O contorno é a meta; o verde por dentro é o que já foi feito. */
+  .metas-topo { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px 16px; margin-bottom:12px; }
+  .funil-metas { background:var(--card); border:1px solid #cfe8d9; border-radius:14px; padding:18px; }
+  .f-linha { display:grid; grid-template-columns:210px 1fr; gap:16px; align-items:center; height:72px; }
+  .f-texto b { display:block; } .f-texto small { display:block; color:var(--muted); } .f-texto small.ok { color:#15803d; font-weight:700; }
+  .f-linha svg { width:100%; height:72px; display:block; }
+  .f-fora { fill:#f0faf4; stroke:#86c9a0; stroke-width:2; }
+  .f-fora.aberta { fill:#f8fcf9; stroke-dasharray:5 4; }
+  .f-dentro { fill:#16a34a; }
+  .f-fat { margin-top:20px; border-top:1px solid #cfe8d9; padding-top:14px; }
+  .f-fat-topo { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 16px; margin-bottom:8px; }
+  .f-barra { height:30px; border:2px solid #86c9a0; background:#f0faf4; border-radius:999px; overflow:hidden; }
+  .f-barra.aberta { border-style:dashed; background:#f8fcf9; }
+  .f-barra i { display:block; height:100%; background:#16a34a; border-radius:999px; transition:width .4s ease; }
+  @media (max-width:700px) { .f-linha { grid-template-columns:1fr; height:auto; gap:4px; margin-bottom:12px; } }
   .panel.resumo { font-weight:700; padding:10px 14px; margin-bottom:12px; }
   .panel.resumo.ganha { background:rgba(22,163,74,.16); border-color:var(--ok); }
   .panel.resumo.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); }
@@ -290,7 +305,7 @@ async function abrirApp() {
     S.sit = e.target.value; try { localStorage.setItem('crm_sit', S.sit); } catch { /* ok */ }
     S.view = 'funil'; desenhar(); } },
     ...SITUACOES.map(([k, n]) => h('option', { value: k, selected: k === S.sit }, 'Negociações: ' + n)));
-  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['config', 'Config']].map(([id, nome]) =>
+  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['metas', 'Metas'], ['config', 'Config']].map(([id, nome]) =>
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
     h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, situacao, filtro, h('div', { class: 'spacer' }),
@@ -309,6 +324,7 @@ async function desenhar() {
     if (S.view === 'funil') v.replaceChildren(quadro());
     else if (S.view === 'hoje') v.replaceChildren(...telaHoje());
     else if (S.view === 'painel') v.replaceChildren(...await telaPainel());
+    else if (S.view === 'metas') v.replaceChildren(...await telaMetas());
     else v.replaceChildren(...telaConfig());
   } catch (e) { console.error(e); }
 }
@@ -648,19 +664,84 @@ async function telaPainel() {
   ];
 }
 
+// ---------- metas do mês (funil de verdade) ----------
+// O contorno de cada etapa é a META; o verde por dentro é quanto já foi feito NESTE mês.
+// Só verde: o tamanho do verde mostra quanto falta.
+const SVGNS = 'http://www.w3.org/2000/svg';
+function sv(tag, attrs = {}) { const el = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; }
+const numBR = (n) => Number(n || 0).toLocaleString('pt-BR');
+
+async function telaMetas() {
+  const p = await run(sb.rpc('painel_mes', { p_mes: null }), 'Não foi possível carregar as metas.'); // sempre o mês corrente
+  const m = S.cfg.metas || {}, c = p.chegaram;
+  const [ano, mes] = p.mes.split('-').map(Number);
+  const nomeMes = new Date(ano, mes - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const etapas = [
+    { nome: 'Leads', atual: c.novo, meta: Number(m.leads) || 0 },
+    { nome: 'Leads quentes', atual: c.quente, meta: Number(m.quentes) || 0 },
+    { nome: 'Reuniões agendadas', atual: c.agendada, meta: Number(m.agendadas) || 0 },
+    { nome: 'Reuniões realizadas', atual: c.realizada, meta: Number(m.realizadas) || 0 },
+    { nome: 'Vendas', atual: c.fechado, meta: Number(m.vendas) || 0 },
+  ];
+  const fat = Number(m.faturamento) || 0, rec = Number(p.receita) || 0;
+  const semMetas = etapas.every((e) => !e.meta) && !fat;
+  const H = 72, topo = [100, 84, 68, 52, 38], pontaFinal = 28; // largura (%) de cada etapa no topo; a última termina em 28%
+  const larg = (y, wt, wb) => wt + (wb - wt) * (y / H);
+  const poly = (wt, wb, f, y0, y1) => { const a = larg(y0, wt, wb) * f, b = larg(y1, wt, wb) * f;
+    return `${50 - a / 2},${y0} ${50 + a / 2},${y0} ${50 + b / 2},${y1} ${50 - b / 2},${y1}`; };
+
+  const linhas = etapas.map((e, i) => {
+    const wt = topo[i], wb = i + 1 < topo.length ? topo[i + 1] : pontaFinal;
+    const r = e.meta > 0 ? Math.min(1, e.atual / e.meta) : 0;
+    const svg = sv('svg', { viewBox: `0 0 100 ${H}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+    svg.append(sv('polygon', { points: poly(wt, wb, 1, 1, H - 1), class: 'f-fora' + (e.meta > 0 ? '' : ' aberta'), 'vector-effect': 'non-scaling-stroke' }));
+    if (r > 0) svg.append(sv('polygon', { points: poly(wt, wb, r * 0.94, 7, H - 7), class: 'f-dentro' }));
+    const falta = Math.max(0, e.meta - e.atual);
+    return h('div', { class: 'f-linha' },
+      h('div', { class: 'f-texto' }, h('b', {}, e.nome),
+        e.meta > 0
+          ? h('small', {}, `${numBR(e.atual)} de ${numBR(e.meta)} • ${Math.round(e.atual / e.meta * 100)}%`)
+          : h('small', {}, `${numBR(e.atual)} • meta em aberto`),
+        e.meta > 0 ? (falta > 0 ? h('small', {}, 'faltam ' + numBR(falta)) : h('small', { class: 'ok' }, '✓ meta batida')) : null),
+      svg);
+  });
+
+  const rf = fat > 0 ? Math.min(1, rec / fat) : 0;
+  const barra = h('div', { class: 'f-fat' },
+    h('div', { class: 'f-fat-topo' }, h('b', {}, '💰 Faturamento'),
+      h('span', {}, fat > 0 ? `${brl(rec)} de ${brl(fat)} • ${Math.round(rec / fat * 100)}%` + (rec >= fat ? ' • ✓ meta batida' : ` • faltam ${brl(fat - rec)}`) : `${brl(rec)} • meta em aberto`)),
+    h('div', { class: 'f-barra' + (fat > 0 ? '' : ' aberta') }, h('i', { style: `width:${rf * 100}%` })));
+
+  return [
+    h('div', { class: 'metas-topo' }, h('h2', { style: 'margin:0' }, 'Metas de ' + nomeMes),
+      h('small', { style: 'color:var(--muted)' }, 'Sempre o mês atual • lead que virou quente conta no mês, mesmo que já tenha avançado')),
+    semMetas ? h('div', { class: 'panel', style: 'border-color:#86c9a0;background:#f0faf4' }, 'Você ainda não definiu as metas. ',
+      h('button', { class: 'btn sm', onclick: () => { S.view = 'config'; desenhar(); } }, 'Definir metas'),
+      ' Enquanto isso, o funil mostra o que você já fez no mês.') : null,
+    h('div', { class: 'funil-metas' }, ...linhas, barra),
+  ].filter(Boolean);
+}
+
 // ---------- config ----------
 function telaConfig() {
-  const meta = S.cfg.meta || { receita: 0, vendas: 0 }, msgs = S.cfg.mensagens || [];
-  const rec = h('input', { type: 'number', min: '0', value: meta.receita || '' }), ven = h('input', { type: 'number', min: '0', value: meta.vendas || '' });
+  const mt = S.cfg.metas || {}, msgs = S.cfg.mensagens || [];
+  const campoMeta = (chave, rot, ex) => ({ chave, label: h('label', {}, rot,
+    h('input', { type: 'number', min: '0', step: chave === 'faturamento' ? '0.01' : '1', placeholder: 'ex.: ' + ex, value: mt[chave] || '' })) });
+  const metas = [campoMeta('faturamento', 'Faturamento do mês (R$)', '30000'), campoMeta('leads', 'Leads', '500'), campoMeta('quentes', 'Leads quentes', '300'),
+    campoMeta('agendadas', 'Reuniões agendadas', '60'), campoMeta('realizadas', 'Reuniões realizadas', '50'), campoMeta('vendas', 'Vendas', '10')];
   const tpl = msgs.map((m, i) => h('label', {}, `Follow-up ${i + 1}`, h('textarea', {}, m)));
   return [
-    h('div', { class: 'panel' }, h('h2', {}, 'Meta mensal'), h('div', { class: 'grid2' }, h('label', {}, 'Faturamento (R$)', rec), h('label', {}, 'Nº de vendas', ven))),
+    h('div', { class: 'panel' }, h('h2', {}, 'Metas do mês'),
+      h('p', { class: 'empty' }, 'Preencha o que quiser. O que ficar em branco aparece como "meta em aberto" na tela Metas. Valem para o mês corrente e para os próximos, até você mudar.'),
+      h('div', { class: 'grid3' }, ...metas.map((x) => x.label))),
     h('div', { class: 'panel' }, h('h2', {}, 'Mensagens de follow-up (WhatsApp)'),
       h('p', { class: 'empty' }, 'Use {nome} para o primeiro nome do lead. Dias: 1º = 1 dia após a reunião, 2º = +3, 3º = +1, 4º = +2.'), tpl),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: async () => {
+        const valores = Object.fromEntries(metas.map((x) => [x.chave, Number(x.label.lastChild.value) || 0]).filter(([, v]) => v > 0));
         await run(sb.from('configuracoes').upsert([
-          { chave: 'meta', valor: { receita: Number(rec.value) || 0, vendas: Number(ven.value) || 0 } },
+          { chave: 'metas', valor: valores },
+          { chave: 'meta', valor: { receita: valores.faturamento || 0, vendas: valores.vendas || 0 } }, // usada no bloco de meta do Painel
           { chave: 'mensagens', valor: tpl.map((l) => l.lastChild.value.slice(0, 1000)) }]), 'Não foi possível salvar.');
         await carregar(); toast('Salvo!');
       } }, 'Salvar configurações'),
