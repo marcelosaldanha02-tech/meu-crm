@@ -10,7 +10,7 @@
 <style>
   :root {
     color-scheme: light; /* só modo claro: barras de rolagem e campos também ficam claros */
-    --bg:#f5f6f8; --card:#fff; --text:#1c2230; --muted:#6b7385; --line:#e3e6ec;
+    --bg:#f3f6fd; --card:#fff; --text:#1c2230; --muted:#6b7385; --line:#e3e6ec;
     --brand:#2f5bea; --brand-d:#2448c0; --ok:#16a34a; --warn:#d97706; --bad:#dc2626;
   }
   * { box-sizing:border-box; }
@@ -32,13 +32,16 @@
   main { padding:16px; }
   .search { flex:1 1 220px; max-width:360px; }
   .board { display:grid; grid-template-columns:repeat(var(--cols,6), minmax(190px,1fr)); gap:10px; overflow-x:auto; align-items:start; scroll-snap-type:x proximity; padding-bottom:8px; }
-  .col { background:var(--card); border:1px solid var(--line); border-radius:10px; min-height:160px; scroll-snap-align:start; }
+  .col { background:var(--card); border:1px solid var(--line); border-top:5px solid var(--c, var(--line)); border-radius:14px; min-height:160px; scroll-snap-align:start; box-shadow:0 2px 10px rgba(40,60,120,.07); }
   .col.over { outline:2px dashed var(--brand); }
-  .col.followup { border-color:var(--warn); } .col.followup h3 { color:var(--warn); border-bottom-color:var(--warn); }
-  .col h3 { margin:0; padding:10px 12px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); display:flex; justify-content:space-between; border-bottom:1px solid var(--line); }
+  .col h3 { margin:0; padding:10px 12px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--c, var(--muted)); background:var(--c-bg, transparent); border-radius:9px 9px 0 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .col h3 .contagem { background:#fff; color:var(--c, var(--muted)); border-radius:999px; min-width:24px; padding:1px 8px; text-align:center; font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,.08); }
   .col .cards { padding:8px; display:flex; flex-direction:column; gap:8px; }
-  .lead { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; cursor:pointer; }
-  .lead:hover { border-color:var(--brand); }
+  .lead { background:#fff; border:1px solid var(--line); border-left:5px solid var(--c, var(--line)); border-radius:12px; padding:10px 12px; cursor:pointer; box-shadow:0 1px 4px rgba(40,60,120,.10); transition:transform .15s ease, box-shadow .15s ease; }
+  .lead:hover { transform:translateY(-2px); box-shadow:0 8px 18px rgba(40,60,120,.18); }
+  .lead .topo { display:flex; align-items:center; gap:10px; }
+  .avatar { width:36px; height:36px; flex:none; border-radius:50%; background:var(--c-bg, var(--line)); color:var(--c, var(--muted)); display:grid; place-items:center; font-weight:800; font-size:15px; }
+  @media (prefers-reduced-motion: reduce) { .lead { transition:none; } .lead:hover { transform:none; } }
   .lead b { display:block; overflow-wrap:anywhere; } .lead small { color:var(--muted); overflow-wrap:anywhere; }
   .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; background:var(--line); color:var(--muted); margin-top:4px; }
   .tag.late { background:var(--bad); color:#fff; } .tag.today { background:var(--warn); color:#fff; } .tag.won { background:var(--ok); color:#fff; }
@@ -86,6 +89,8 @@
   .dlg h2 { margin:0; font-size:17px; overflow-wrap:anywhere; }
   label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
   input, textarea, select { font:inherit; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); width:100%; }
+  /* Opções dos menus suspensos com cores fixas (texto escuro em fundo branco) para sempre aparecerem */
+  select option, select optgroup { background-color:#fff; color:#1c2230; }
   textarea { min-height:70px; resize:vertical; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
@@ -120,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSe
 const TZ = 'America/Sao_Paulo';
 const ETAPAS = [
   ['novo', 'Novo lead'], ['contato', 'Contato feito'], ['conversa', 'Em conversa'],
-  ['agendada', 'Reunião agendada'], ['realizada', 'Reunião realizada'], ['proposta', 'Proposta enviada'], ['fechado', 'Fechado'], ['perdido', 'Perdido'],
+  ['agendada', 'Reunião agendada'], ['realizada', 'Reunião realizada'], ['proposta', 'Proposta enviada'], ['followup', 'Follow-up'], ['fechado', 'Fechado'], ['perdido', 'Perdido'],
 ];
 const ROTULO = Object.fromEntries(ETAPAS);
 const TIPO_ATIV = { followup: "Follow up", ligacao: "Ligação", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Outro" };
@@ -220,7 +225,13 @@ function celebrar() {
 const SITUACOES = [['andamento', 'Em andamento'], ['todas', 'Todas (com ganhas)'], ['ganhas', 'Ganhas'], ['perdidas', 'Perdidas']];
 let sitSalva = 'andamento'; try { sitSalva = localStorage.getItem('crm_sit') || 'andamento'; } catch { /* sem armazenamento: usa o padrão */ }
 const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
-const TEMP = { quente: ['🔥 Quente', 'hot'], morno: ['Morno', 'warm'] };
+// Cada etapa tem a sua cor e um emoji: [cor forte, cor suave de fundo, emoji]
+const COR = {
+  novo: ['#2f5bea', '#e6edff', '🆕'], contato: ['#0891b2', '#dcf5fa', '💬'], conversa: ['#7c3aed', '#efe7ff', '🗣️'],
+  agendada: ['#ea580c', '#ffe9dc', '📅'], realizada: ['#0d9488', '#d9f5f1', '🤝'], proposta: ['#db2777', '#ffe4f1', '📨'],
+  followup: ['#d97706', '#fff1d6', '⏰'], fechado: ['#16a34a', '#dcf7e5', '🏆'], perdido: ['#dc2626', '#fde4e4', '💔'],
+};
+const TEMP = { quente: ['🔥 Quente', 'hot'], morno: ['🌤️ Morno', 'warm'] };
 const app = $('#app');
 
 // ---------- login ----------
@@ -284,7 +295,9 @@ async function abrirApp() {
       h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
       h('button', { class: 'btn ghost', onclick: () => sb.auth.signOut() }, 'Sair')),
     h('main', { id: 'view' }));
-  await carregar(); desenhar();
+  await aplicarRegraFollowup(); await carregar(); desenhar();
+  // ao voltar para a aba depois de um tempo (ex.: virou o dia), roda a regra de novo
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#view')) aplicarRegraFollowup().then(recarregar); });
 }
 async function desenhar() {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.view));
@@ -298,6 +311,11 @@ async function desenhar() {
   } catch (e) { console.error(e); }
 }
 async function recarregar() { await carregar(); desenhar(); }
+// Regra: no dia do primeiro follow-up, o card sai de "Proposta enviada" e vai para "Follow-up".
+// O banco também roda isso sozinho todo dia; aqui é a garantia de que está em dia ao abrir o CRM.
+async function aplicarRegraFollowup() {
+  try { await sb.rpc('mover_followups_vencidos'); } catch (e) { console.warn('regra de follow-up indisponível', e); }
+}
 
 // ---------- funil ----------
 function quadro() {
@@ -305,10 +323,10 @@ function quadro() {
   if (S.sit === 'ganhas' || S.sit === 'perdidas') return listaEncerradas(lista, S.sit === 'ganhas');
   // "Perdido" não é mais coluna: perdidas aparecem pelo filtro. Em andamento esconde também as ganhas.
   const colunas = ETAPAS.filter(([id]) => id !== 'perdido' && (S.sit === 'todas' || id !== 'fechado'));
-  return h('div', { class: 'board', style: `--cols:${colunas.length + 1}` }, ...colunas.map(([id, nome]) => {
+  return h('div', { class: 'board', style: `--cols:${colunas.length}` }, ...colunas.map(([id, nome]) => {
     const itens = lista.filter((l) => l.etapa === id);
-    const col = h('div', { class: 'col', 'data-etapa': id },
-      h('h3', {}, h('span', {}, nome), h('span', {}, itens.length)),
+    const col = h('div', { class: 'col', 'data-etapa': id, style: `--c:${COR[id][0]};--c-bg:${COR[id][1]}` },
+      h('h3', {}, h('span', {}, COR[id][2] + ' ' + nome), h('span', { class: 'contagem' }, itens.length)),
       h('div', { class: 'cards' }, itens.length ? itens.map((l) => cartao(l, t)) : h('div', { class: 'empty' }, '—')));
     col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('over'); });
     col.addEventListener('dragleave', () => col.classList.remove('over'));
@@ -318,48 +336,9 @@ function quadro() {
       if (lead && lead.etapa !== id) mover(lead, id);
     });
     return col;
-  }), colunaFollowup(lista));
+  }));
 }
 
-// Última coluna: todo cliente que precisa de follow-up agora (vencido ou para hoje).
-// Não é uma etapa do funil: o card continua na sua etapa e também aparece aqui.
-function precisaFollowup(lista) {
-  const t = hoje(), porLead = {};
-  const add = (id, item) => (porLead[id] ||= []).push(item);
-  for (const f of S.fups || []) if (f.data_prevista <= t) add(f.lead_id, { data: f.data_prevista, tipo: 'fu', id: f.id, numero: f.numero, rotulo: `Follow-up ${f.numero}/4` });
-  for (const a of S.ativ || []) if (a.tipo === 'followup' && a.vence_em <= t) add(a.lead_id, { data: a.vence_em, tipo: 'at', id: a.id, rotulo: a.descricao });
-  return lista.filter((l) => porLead[l.id] && l.etapa !== 'fechado' && l.etapa !== 'perdido')
-    .map((l) => ({ l, it: porLead[l.id].sort((x, y) => x.data.localeCompare(y.data))[0] }))
-    .sort((x, y) => x.it.data.localeCompare(y.it.data)); // o mais atrasado primeiro
-}
-function diasAtraso(data) {
-  const [a, b, c] = data.split('-').map(Number), [x, y, z] = hoje().split('-').map(Number);
-  return Math.round((Date.UTC(x, y - 1, z) - Date.UTC(a, b - 1, c)) / 864e5);
-}
-function colunaFollowup(lista) {
-  const itens = precisaFollowup(lista), msgs = S.cfg.mensagens || [];
-  const cartaoFu = ({ l, it }) => {
-    const dias = diasAtraso(it.data);
-    const texto = it.tipo === 'fu' ? (msgs[it.numero - 1] || '').replaceAll('{nome}', l.nome.split(' ')[0]) : '';
-    const parar = (e) => e.stopPropagation(); // os botões não abrem o card
-    return h('div', { class: 'lead', onclick: () => abrirLead(l.id) },
-      h('b', {}, l.nome), h('small', {}, ROTULO[l.etapa]),
-      h('div', { class: 'chips', style: 'margin-top:4px' },
-        h('span', { class: 'tag ' + (dias > 0 ? 'late' : 'today') }, it.rotulo + ' • ' + (dias > 0 ? `atrasado ${dias} ${dias === 1 ? 'dia' : 'dias'}` : 'hoje')),
-        TEMP[l.temperatura] ? h('span', { class: 'tag ' + TEMP[l.temperatura][1] }, TEMP[l.temperatura][0]) : null),
-      h('div', { class: 'actions', style: 'margin-top:6px' },
-        l.telefone ? h('a', { class: 'btn sm', href: waLink(l.telefone, texto), target: '_blank', rel: 'noopener noreferrer', onclick: parar }, 'WhatsApp') : null,
-        h('button', { class: 'btn sm ok', type: 'button', onclick: async (e) => {
-          parar(e);
-          await run(it.tipo === 'fu' ? sb.from('followups').update({ status: 'feito' }).eq('id', it.id)
-            : sb.from('atividades').update({ feito_em: new Date().toISOString() }).eq('id', it.id));
-          await recarregar();
-        } }, 'Feito')));
-  };
-  return h('div', { class: 'col followup', 'data-etapa': 'followup' },
-    h('h3', {}, h('span', {}, 'Follow-up'), h('span', {}, itens.length)),
-    h('div', { class: 'cards' }, itens.length ? itens.map(cartaoFu) : h('div', { class: 'empty' }, 'Nenhum cliente precisa de follow-up agora. 🎉')));
-}
 // Lista de negociações já encerradas: ganhas (Fechado) ou perdidas
 function listaEncerradas(lista, ganhas) {
   const itens = lista.filter((l) => l.etapa === (ganhas ? 'fechado' : 'perdido'))
@@ -382,14 +361,31 @@ function cartao(l, t) {
   else if (fu) tag = h('span', { class: 'tag ' + (fu.data_prevista < t ? 'late' : fu.data_prevista === t ? 'today' : '') }, `Follow-up ${fu.numero} • ${fmtDay(fu.data_prevista).slice(0, 5)}`);
   else if (l.etapa === 'agendada' && l.reuniao_em) tag = h('span', { class: 'tag' }, fmtDT(l.reuniao_em));
   const temp = TEMP[l.temperatura], rep = (S.etiq[l.id] || []).length;
+  const acoesFu = (l.etapa === 'followup' && fu) ? cartaoAcoesFollowup(l, fu) : null;
   const el = h('div', { class: 'lead' + (l.etapa === 'fechado' ? ' ganha' : l.etapa === 'perdido' ? ' perdida' : ''), draggable: 'true', onclick: () => abrirLead(l.id) },
-    h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email),
+    h('div', { class: 'topo' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, (l.nome.trim()[0] || '?').toUpperCase()),
+      h('div', { style: 'min-width:0' }, h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email))),
     (temp || rep || tag) ? h('div', { class: 'chips', style: 'margin-top:4px' },
       temp ? h('span', { class: 'tag ' + temp[1] }, temp[0]) : null,
       rep ? h('span', { class: 'tag rep', title: S.etiq[l.id].join('\n') }, `↻ Preencheu de novo${rep > 1 ? ' ×' + rep : ''}`) : null,
-      tag) : null);
+      tag) : null,
+    acoesFu);
   el.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', l.id));
   return el;
+}
+// Na etapa Follow-up: WhatsApp com a mensagem pronta e "Feito" direto no card
+function cartaoAcoesFollowup(l, fu) {
+  const msgs = S.cfg.mensagens || [], parar = (e) => e.stopPropagation(); // os botões não abrem o card
+  const texto = (msgs[fu.numero - 1] || '').replaceAll('{nome}', l.nome.split(' ')[0]);
+  const [a, b, c] = fu.data_prevista.split('-').map(Number), [x, y, z] = hoje().split('-').map(Number);
+  const dias = Math.round((Date.UTC(x, y - 1, z) - Date.UTC(a, b - 1, c)) / 864e5);
+  return h('div', { style: 'margin-top:6px' },
+    dias > 0 ? h('small', { style: 'color:var(--bad)' }, `Atrasado ${dias} ${dias === 1 ? 'dia' : 'dias'}`) : null,
+    h('div', { class: 'actions', style: 'margin-top:4px' },
+      l.telefone ? h('a', { class: 'btn sm', href: waLink(l.telefone, texto), target: '_blank', rel: 'noopener noreferrer', onclick: parar }, 'WhatsApp') : null,
+      h('button', { class: 'btn sm ok', type: 'button', onclick: async (e) => {
+        parar(e); await run(sb.from('followups').update({ status: 'feito' }).eq('id', fu.id)); await recarregar();
+      } }, 'Feito')));
 }
 async function mover(lead, etapa) {
   const upd = { etapa };
@@ -624,7 +620,7 @@ async function telaPainel() {
   const kpi = (rot, val) => h('div', { class: 'kpi' }, h('span', {}, rot), h('b', {}, val));
   const progresso = (rot, atual, alvo, fmt) => alvo > 0 ? h('div', { style: 'margin-bottom:12px' }, h('span', {}, `${rot}: ${fmt(atual)} de ${fmt(alvo)} (${pct(atual / alvo)})`),
     h('div', { class: 'bar' }, h('i', { style: `width:${Math.min(100, atual / alvo * 100)}%` }))) : null;
-  const fluxo = ['novo', 'contato', 'conversa', 'agendada', 'realizada', 'proposta', 'fechado'];
+  const fluxo = ['novo', 'contato', 'conversa', 'agendada', 'realizada', 'proposta', 'followup', 'fechado'];
   // Proposta e Fechado são medidos sobre as reuniões realizadas: a venda pode sair na própria reunião, sem proposta.
   const base = (id, i) => (id === 'proposta' || id === 'fechado') ? c.realizada : (i ? c[fluxo[i - 1]] : 0);
   return [
