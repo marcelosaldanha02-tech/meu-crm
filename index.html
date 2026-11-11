@@ -42,6 +42,21 @@
   .lead b { display:block; overflow-wrap:anywhere; } .lead small { color:var(--muted); overflow-wrap:anywhere; }
   .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; background:var(--line); color:var(--muted); margin-top:4px; }
   .tag.late { background:var(--bad); color:#fff; } .tag.today { background:var(--warn); color:#fff; } .tag.won { background:var(--ok); color:#fff; }
+  .tag.hot { background:var(--bad); color:#fff; } .tag.warm { background:var(--warn); color:#fff; } .tag.rep { background:var(--brand); color:#fff; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; } .chips .tag { margin:0; }
+  .qa { padding:8px 0; border-bottom:1px solid var(--line); } .qa:last-child { border:0; }
+  .qa small { color:var(--muted); display:block; } .qa div { overflow-wrap:anywhere; }
+  select.filtro { width:auto; }
+  dialog.largo { width:min(1040px,96vw); }
+  .cardhead { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .cardcols { display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
+  .col2 { display:flex; flex-direction:column; gap:16px; min-width:0; }
+  .sec { display:flex; flex-direction:column; gap:10px; border-top:1px solid var(--line); padding-top:12px; }
+  .sec h3 { margin:0; font-size:13px; } .grid3 { display:grid; grid-template-columns:1.2fr 1fr .8fr; gap:10px; }
+  .linha { display:flex; gap:8px; align-items:center; } .linha input { flex:1; }
+  .fu.feita { color:var(--muted); text-decoration:line-through; }
+  button.x { background:none; border:0; color:inherit; cursor:pointer; padding:0 2px; font-size:13px; }
+  .cardfoot { display:flex; gap:8px; align-items:center; position:sticky; bottom:0; background:var(--card); padding-top:12px; border-top:1px solid var(--line); }
   .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
   .panel h2 { margin:0 0 12px; font-size:15px; }
   .fu { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); flex-wrap:wrap; }
@@ -69,7 +84,7 @@
   #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:8px; z-index:99; max-width:90vw; }
   @media (max-width:700px) {
     header { position:static; }
-    .grid2 { grid-template-columns:1fr; }
+    .grid2, .grid3, .cardcols { grid-template-columns:1fr; }
     .board { grid-template-columns:repeat(7, 78vw); }
     .funnel .row span { width:96px; }
   }
@@ -95,6 +110,7 @@ const ETAPAS = [
   ['agendada', 'Reunião agendada'], ['realizada', 'Reunião realizada'], ['fechado', 'Fechado'], ['perdido', 'Perdido'],
 ];
 const ROTULO = Object.fromEntries(ETAPAS);
+const TIPO_ATIV = { followup: "Follow up", ligacao: "Ligação", whatsapp: "WhatsApp", email: "E-mail", reuniao: "Reunião", outro: "Outro" };
 
 // ---------- utilitários (todo texto entra como TEXTO, nunca como HTML) ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -136,7 +152,7 @@ async function run(promise, falha = 'Algo deu errado. Tente de novo.') {
 
 // Janela de diálogo reaproveitável
 const dlg = $('#dlg');
-function openDialog(...content) { dlg.replaceChildren(h('div', { class: 'dlg' }, ...content)); if (!dlg.open) dlg.showModal(); }
+function openDialog(...content) { dlg.classList.remove("largo"); dlg.replaceChildren(h('div', { class: 'dlg' }, ...content)); if (!dlg.open) dlg.showModal(); }
 function closeDialog() { if (dlg.open) dlg.close(); }
 function ask(titulo, campos) {
   return new Promise((resolve) => {
@@ -147,7 +163,7 @@ function ask(titulo, campos) {
     });
     let feito = false;
     const fim = (v) => { if (!feito) { feito = true; closeDialog(); resolve(v); } };
-    dlg.onclose = () => fim(null);
+    dlg.onclose = () => { if (!dlg.open) fim(null); }; // ignora o fechamento do card anterior
     openDialog(h('h2', {}, titulo), ...inputs, h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => fim(Object.fromEntries(inputs.map((l) => [l.lastChild.name, l.lastChild.value]))) }, 'Confirmar'),
       h('button', { class: 'btn ghost', onclick: () => fim(null) }, 'Cancelar')));
@@ -156,7 +172,8 @@ function ask(titulo, campos) {
 }
 
 // ---------- estado ----------
-const S = { leads: [], proximo: {}, cfg: {}, view: 'funil', q: '', mes: null, atrasados: 0 };
+const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', mes: null, atrasados: 0 };
+const TEMP = { quente: ['🔥 Quente', 'hot'], morno: ['Morno', 'warm'] };
 const app = $('#app');
 
 // ---------- login ----------
@@ -190,12 +207,15 @@ async function carregar() {
   for (const f of fus) if (!S.proximo[f.lead_id]) S.proximo[f.lead_id] = f; // o mais próximo de cada lead
   const cfg = await run(sb.from('configuracoes').select('chave,valor'));
   S.cfg = Object.fromEntries(cfg.map((c) => [c.chave, c.valor]));
-  S.atrasados = fus.filter((f) => f.data_prevista <= hoje()).length;
+  S.ativ = await run(sb.from("atividades").select("*").is("feito_em", null).order("vence_em"));
+  S.atrasados = fus.filter((f) => f.data_prevista <= hoje()).length + S.ativ.filter((x) => x.vence_em <= hoje()).length;
+  const et = await run(sb.from('etiquetas').select('lead_id,texto').order('criado_em'));
+  S.etiq = {}; for (const e of et) (S.etiq[e.lead_id] ||= []).push(e.texto);
 }
 const leadsFiltrados = () => {
-  const q = semAcento(S.q).trim(); if (!q) return S.leads;
-  const qd = q.replace(/\D/g, '');
-  return S.leads.filter((l) => semAcento(l.nome).includes(q) || semAcento(l.email).includes(q) || (qd && l.telefone.includes(qd)));
+  const q = semAcento(S.q).trim(), qd = q.replace(/\D/g, '');
+  return S.leads.filter((l) => (!S.temp || l.temperatura === S.temp) &&
+    (!q || semAcento(l.nome).includes(q) || semAcento(l.email).includes(q) || (qd && l.telefone.includes(qd))));
 };
 
 // ---------- estrutura principal ----------
@@ -204,10 +224,12 @@ async function abrirApp() {
   if (error || !ok) { await sb.auth.signOut(); return telaLogin('Este e-mail não tem permissão para usar o CRM.'); }
   const busca = h('input', { class: 'search', type: 'search', placeholder: 'Buscar nome, e-mail ou telefone', 'aria-label': 'Buscar',
     oninput: (e) => { S.q = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } });
+  const filtro = h('select', { class: 'filtro', 'aria-label': 'Filtrar por temperatura', onchange: (e) => { S.temp = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } },
+    h('option', { value: '' }, 'Todas as temperaturas'), h('option', { value: 'quente' }, '🔥 Só quentes'), h('option', { value: 'morno' }, 'Só mornos'));
   const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['config', 'Config']].map(([id, nome]) =>
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
-    h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, h('div', { class: 'spacer' }),
+    h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, filtro, h('div', { class: 'spacer' }),
       h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
       h('button', { class: 'btn ghost', onclick: () => sb.auth.signOut() }, 'Sair')),
     h('main', { id: 'view' }));
@@ -250,8 +272,13 @@ function cartao(l, t) {
   if (l.etapa === 'fechado') tag = h('span', { class: 'tag won' }, brl(l.valor_venda));
   else if (fu) tag = h('span', { class: 'tag ' + (fu.data_prevista < t ? 'late' : fu.data_prevista === t ? 'today' : '') }, `Follow-up ${fu.numero} • ${fmtDay(fu.data_prevista).slice(0, 5)}`);
   else if (l.etapa === 'agendada' && l.reuniao_em) tag = h('span', { class: 'tag' }, fmtDT(l.reuniao_em));
+  const temp = TEMP[l.temperatura], rep = (S.etiq[l.id] || []).length;
   const el = h('div', { class: 'lead', draggable: 'true', onclick: () => abrirLead(l.id) },
-    h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email), tag ? h('div', {}, tag) : null);
+    h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email),
+    (temp || rep || tag) ? h('div', { class: 'chips', style: 'margin-top:4px' },
+      temp ? h('span', { class: 'tag ' + temp[1] }, temp[0]) : null,
+      rep ? h('span', { class: 'tag rep', title: S.etiq[l.id].join('\n') }, `↻ Preencheu de novo${rep > 1 ? ' ×' + rep : ''}`) : null,
+      tag) : null);
   el.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', l.id));
   return el;
 }
@@ -286,78 +313,182 @@ async function novoLead() {
 // ---------- card aberto ----------
 async function abrirLead(id) {
   const [lead] = await run(sb.from('leads').select('*').eq('id', id));
-  const [hist, notas, fus] = await Promise.all([
+  if (!lead) return;
+  const [hist, notas, fus, etiq, envios, ativ] = await Promise.all([
     run(sb.from('historico_etapas').select('*').eq('lead_id', id).order('entrou_em')),
     run(sb.from('anotacoes').select('*').eq('lead_id', id).order('criado_em', { ascending: false })),
     run(sb.from('followups').select('*').eq('lead_id', id).order('numero')),
+    run(sb.from('etiquetas').select('*').eq('lead_id', id).order('criado_em')),
+    run(sb.from('respostas_formulario').select('*').eq('lead_id', id).order('enviado_em')),
+    run(sb.from('atividades').select('*').eq('lead_id', id).order('vence_em')),
   ]);
-  if (!lead) return;
   const campo = (rot, el) => h('label', {}, rot, el);
-  const nome = h('input', { value: lead.nome }), tel = h('input', { value: lead.telefone, inputmode: 'tel' }), mail = h('input', { value: lead.email, type: 'email' });
+  const secao = (titulo, ...filhos) => h('section', { class: 'sec' }, h('h3', {}, titulo), ...filhos);
+
+  // --- campos da esquerda
+  const nome = h('input', { value: lead.nome, maxlength: 200 });
+  const tel = h('input', { value: lead.telefone, inputmode: 'tel', maxlength: 20 });
+  const mail = h('input', { value: lead.email, type: 'email', maxlength: 254 });
   const valor = h('input', { type: 'number', step: '0.01', min: '0', value: lead.valor_venda || '' });
-  const reun = h('input', { type: 'datetime-local', value: toLocalInput(lead.reuniao_em) });
-  const mudar = h('select', {}, ...ETAPAS.map(([e, n]) => h('option', { value: e, selected: e === lead.etapa }, n)));
-  const nota = h('textarea', { placeholder: 'Registre o que conversaram...' });
+  const obs = h('textarea', { maxlength: 5000 }, lead.observacao || '');
+  const estagio = h('select', {}, ...ETAPAS.map(([e, n]) => h('option', { value: e, selected: e === lead.etapa }, n)));
+  const nota = h('textarea', { placeholder: 'Registre o que conversaram...', maxlength: 5000 });
 
-  // Próxima ação com data: o follow-up pendente mais próximo, ou a reunião marcada
-  const pend = fus.find((f) => f.status === 'pendente');
+  // Salva o que está digitado antes de qualquer ação que recarrega o card (nada se perde)
+  const guardar = () => run(sb.from('leads').update({
+    nome: nome.value.trim().slice(0, 200) || 'Sem nome', telefone: tel.value.slice(0, 20), email: mail.value.trim().slice(0, 254),
+    valor_venda: Number(valor.value) || 0, observacao: obs.value.slice(0, 5000),
+  }).eq('id', id), 'Não foi possível salvar.');
+  const acao = (fn) => async () => { await guardar(); await fn(); abrirLead(id); };
+
+  // --- tags
+  const novaTag = h('input', { placeholder: 'Nova tag', maxlength: 40, style: 'display:none;width:150px' });
+  const btnTag = h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { btnTag.style.display = 'none'; novaTag.style.display = ''; novaTag.focus(); } }, '+ tag');
+  novaTag.addEventListener('keydown', async (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); novaTag.value = ''; novaTag.style.display = 'none'; btnTag.style.display = ''; }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const t = novaTag.value.trim(); if (!t) return;
+    await acao(() => run(sb.from('etiquetas').insert({ lead_id: id, texto: t.slice(0, 120) })))();
+  });
+  const chips = h('div', { class: 'chips' },
+    TEMP[lead.temperatura] ? h('span', { class: 'tag ' + TEMP[lead.temperatura][1] }, TEMP[lead.temperatura][0]) : null,
+    etiq.map((e) => h('span', { class: 'tag rep' }, e.texto, ' ',
+      h('button', { class: 'x', type: 'button', title: 'Remover tag', onclick: acao(() => run(sb.from('etiquetas').delete().eq('id', e.id))) }, '×'))),
+    novaTag, btnTag);
+
+  // --- atividades
   const msgs = S.cfg.mensagens || [];
-  let acao;
-  if (pend) {
-    const texto = (msgs[pend.numero - 1] || '').replaceAll('{nome}', lead.nome.split(' ')[0]);
-    acao = h('div', { class: 'fu' }, h('div', { class: 'grow' }, h('b', {}, `Follow-up ${pend.numero}/4 por WhatsApp`), h('br'), h('small', {}, 'Para ' + fmtDay(pend.data_prevista))),
-      lead.telefone ? h('a', { class: 'btn sm', href: waLink(lead.telefone, texto), target: '_blank', rel: 'noopener noreferrer' }, 'Abrir WhatsApp') : null,
-      h('button', { class: 'btn sm ok', onclick: async () => { await run(sb.from('followups').update({ status: 'feito' }).eq('id', pend.id)); await recarregar(); abrirLead(id); } }, 'Feito'));
-  } else if (lead.etapa === 'agendada' && lead.reuniao_em) acao = h('div', { class: 'fu' }, h('b', {}, 'Reunião em ' + fmtDT(lead.reuniao_em)));
-  else acao = h('div', { class: 'empty' }, lead.etapa === 'novo' ? 'Fazer o primeiro contato.' : 'Sem ação agendada.');
+  const linhasAtiv = [];
+  for (const f of fus.filter((x) => x.status === 'pendente')) {
+    const texto = (msgs[f.numero - 1] || '').replaceAll('{nome}', lead.nome.split(' ')[0]);
+    linhasAtiv.push(h('div', { class: 'fu' }, h('div', { class: 'grow' }, h('b', {}, `Follow-up ${f.numero}/4 por WhatsApp`), ' ', h('small', {}, 'para ' + fmtDay(f.data_prevista))),
+      lead.telefone ? h('a', { class: 'btn sm', href: waLink(lead.telefone, texto), target: '_blank', rel: 'noopener noreferrer' }, 'WhatsApp') : null,
+      h('button', { class: 'btn sm ok', type: 'button', onclick: acao(() => run(sb.from('followups').update({ status: 'feito' }).eq('id', f.id))) }, 'Feito')));
+  }
+  for (const a of ativ.filter((x) => !x.feito_em)) {
+    linhasAtiv.push(h('div', { class: 'fu' }, h('div', { class: 'grow' }, h('span', { class: 'tag' }, TIPO_ATIV[a.tipo]), ' ', a.descricao, ' ',
+      h('small', {}, fmtDay(a.vence_em) + (a.hora ? ' ' + a.hora.slice(0, 5) : ''))),
+      h('button', { class: 'btn sm ok', type: 'button', onclick: acao(() => run(sb.from('atividades').update({ feito_em: new Date().toISOString() }).eq('id', a.id))) }, 'Feito'),
+      h('button', { class: 'btn sm ghost', type: 'button', title: 'Excluir atividade', onclick: acao(() => run(sb.from('atividades').delete().eq('id', a.id))) }, '×')));
+  }
+  for (const a of ativ.filter((x) => x.feito_em)) {
+    linhasAtiv.push(h('div', { class: 'fu feita' }, h('div', { class: 'grow' }, '✓ ', a.descricao, ' ', h('small', {}, 'feita em ' + fmtDT(a.feito_em)))));
+  }
+  const oQue = h('input', { placeholder: 'Ex.: fazer follow up da proposta', maxlength: 300 });
+  const tipoAtiv = h('select', {}, ...Object.entries(TIPO_ATIV).map(([k, v]) => h('option', { value: k }, v)));
+  const dataAtiv = h('input', { type: 'date', value: hoje() });
+  const horaAtiv = h('input', { type: 'time' });
+  const rapido = [['hoje', 0], ['amanhã', 1], ['em 3 dias', 3], ['em 1 semana', 7]].map(([rot, n]) =>
+    h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { dataAtiv.value = somaDias(hoje(), n); } }, rot));
+  const criarAtiv = acao(async () => {
+    if (!oQue.value.trim()) { toast('Escreva o que precisa ser feito.'); throw new Error('vazio'); }
+    if (!dataAtiv.value) { toast('Escolha a data.'); throw new Error('vazio'); }
+    await run(sb.from('atividades').insert({ lead_id: id, descricao: oQue.value.trim().slice(0, 300), tipo: tipoAtiv.value, vence_em: dataAtiv.value, hora: horaAtiv.value || null }), 'Não foi possível criar a atividade.');
+  });
 
-  dlg.onclose = null;
+  // --- reunião
+  const reun = (lead.reuniao_em ? toLocalInput(lead.reuniao_em) : '').split('T');
+  const dataReun = h('input', { type: 'date', value: reun[0] || hoje() });
+  const horaReun = h('input', { type: 'time', value: reun[1] || '' });
+  const agendar = acao(async () => {
+    if (!dataReun.value) { toast('Escolha a data da reunião.'); throw new Error('vazio'); }
+    const upd = { reuniao_em: fromLocalInput(dataReun.value + 'T' + (horaReun.value || '09:00')) };
+    if (['novo', 'contato', 'conversa'].includes(lead.etapa)) upd.etapa = 'agendada';
+    await run(sb.from('leads').update(upd).eq('id', id), 'Não foi possível agendar.');
+  });
+
+  // --- respostas do formulário
+  const perfil = envios.length
+    ? envios.map((env, i) => h('div', { style: 'margin-top:6px' },
+        h('small', { style: 'color:var(--muted)' }, `${i === 0 ? 'Primeiro envio' : 'Preencheu de novo'} • ${fmtDT(env.enviado_em)}`),
+        (env.respostas || []).map((qa) => h('div', { class: 'qa' }, h('small', {}, qa.pergunta), h('div', {}, qa.resposta)))))
+    : h('div', { class: 'empty' }, 'Sem respostas guardadas (lead criado à mão ou antes desse recurso).');
+
+  const fechar = async (etapa) => { await guardar(); closeDialog(); await mover({ ...lead, nome: nome.value, valor_venda: Number(valor.value) || 0 }, etapa); };
+
+  dlg.onclose = () => { if (!dlg.open) recarregar(); };
   openDialog(
-    h('h2', {}, lead.nome, ' ', h('span', { class: 'tag' }, ROTULO[lead.etapa])),
-    h('div', { class: 'grid2' }, campo('Nome', nome), campo('Telefone', tel), campo('E-mail', mail), campo('Valor da venda (R$)', valor),
-      campo('Reunião marcada para', reun), campo('Mover para etapa', mudar)),
-    lead.motivo_perda ? h('div', {}, h('b', {}, 'Motivo da perda: '), lead.motivo_perda) : null,
-    h('div', {}, h('b', {}, 'Próxima ação'), acao),
-    h('div', {}, h('b', {}, 'Datas das etapas'), h('div', { class: 'tl', style: 'max-height:none' },
-      hist.map((e) => h('div', {}, fmtDT(e.entrou_em), ' — ', h('b', {}, ROTULO[e.etapa]), e.pulada ? ' (passou direto)' : '')))),
-    campo('Nova anotação', nota),
-    h('div', { class: 'actions' }, h('button', { class: 'btn sm ghost', onclick: async () => {
-      if (!nota.value.trim()) return;
-      await run(sb.from('anotacoes').insert({ lead_id: id, tipo: 'nota', texto: nota.value.trim().slice(0, 5000) })); abrirLead(id);
-    } }, 'Adicionar anotação'), lead.telefone ? h('a', { class: 'btn sm ghost', href: waLink(lead.telefone), target: '_blank', rel: 'noopener noreferrer' }, 'WhatsApp') : null),
-    h('div', {}, h('b', {}, 'Histórico'), h('div', { class: 'tl' }, notas.map((a) => h('div', {}, fmtDT(a.criado_em), ' — ', h('b', {}, a.texto))))),
-    h('div', { class: 'actions' },
-      h('button', { class: 'btn', onclick: async () => {
-        const upd = { nome: nome.value.trim() || 'Sem nome', telefone: tel.value.slice(0, 20), email: mail.value.trim().slice(0, 254), valor_venda: Number(valor.value) || 0, reuniao_em: fromLocalInput(reun.value) };
-        await run(sb.from('leads').update(upd).eq('id', id), 'Não foi possível salvar.');
-        if (mudar.value !== lead.etapa) { closeDialog(); await mover({ ...lead, ...upd }, mudar.value); } else { closeDialog(); await recarregar(); }
-      } }, 'Salvar'),
-      h('button', { class: 'btn ghost', onclick: closeDialog }, 'Fechar'), h('div', { class: 'spacer' }),
-      h('button', { class: 'btn bad sm', onclick: async () => {
+    h('div', { class: 'cardhead' },
+      h('h2', {}, lead.nome, ' ', h('span', { class: 'tag' }, ROTULO[lead.etapa])),
+      h('div', { class: 'actions' },
+        lead.etapa !== 'fechado' ? h('button', { class: 'btn ok', type: 'button', onclick: () => fechar('fechado') }, 'Ganho') : null,
+        lead.etapa !== 'perdido' ? h('button', { class: 'btn bad', type: 'button', onclick: () => fechar('perdido') }, 'Perdido') : null)),
+    h('div', { class: 'cardcols' },
+      h('div', { class: 'col2' },
+        h('div', { class: 'grid2' }, campo('Valor (R$)', valor), campo('Estágio', estagio)),
+        lead.motivo_perda ? h('div', {}, h('b', {}, 'Motivo da perda: '), lead.motivo_perda) : null,
+        secao('Pessoa',
+          campo('Nome', nome),
+          campo('Telefone', h('div', { class: 'linha' }, tel, lead.telefone ? h('a', { class: 'btn sm ghost', href: waLink(lead.telefone), target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no WhatsApp' }, 'WhatsApp') : null)),
+          campo('E-mail', mail),
+          h('label', {}, 'Tags', chips),
+          campo('Observação', obs)),
+        secao('Anotações', nota,
+          h('div', { class: 'actions' }, h('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
+            if (!nota.value.trim()) return;
+            await acao(() => run(sb.from('anotacoes').insert({ lead_id: id, tipo: 'nota', texto: nota.value.trim().slice(0, 5000) })))();
+          } }, 'Adicionar anotação')),
+          h('div', { class: 'tl' }, notas.map((a) => h('div', {}, fmtDT(a.criado_em), ' — ', h('b', {}, a.texto)))))),
+      h('div', { class: 'col2' },
+        secao('Perfil do formulário',
+          lead.temperatura ? h('div', { class: 'chips' }, h('span', { class: 'tag ' + TEMP[lead.temperatura][1] }, TEMP[lead.temperatura][0] + (lead.faturamento ? ' • ' + lead.faturamento : ''))) : null,
+          perfil),
+        secao('Atividades',
+          linhasAtiv.length ? linhasAtiv : h('div', { class: 'empty' }, lead.etapa === 'novo' ? 'Nenhuma atividade. Faça o primeiro contato.' : 'Nenhuma atividade agendada.'),
+          campo('O que precisa ser feito', oQue),
+          h('div', { class: 'chips' }, rapido),
+          h('div', { class: 'grid3' }, campo('Tipo', tipoAtiv), campo('Data', dataAtiv), campo('Hora', horaAtiv)),
+          h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: criarAtiv }, 'Criar atividade'))),
+        secao('Reunião',
+          h('div', { class: 'empty' }, lead.reuniao_em ? 'Marcada para ' + fmtDT(lead.reuniao_em) + (lead.reuniao_realizada_em ? ' • realizada em ' + fmtDT(lead.reuniao_realizada_em) : '') : 'Nenhuma reunião marcada ainda.'),
+          h('div', { class: 'grid2' }, campo('Data', dataReun), campo('Hora', horaReun)),
+          h('div', { class: 'actions' },
+            h('button', { class: 'btn', type: 'button', onclick: agendar }, 'Agendar reunião'),
+            lead.etapa === 'agendada' ? h('button', { class: 'btn ok', type: 'button', onclick: acao(() => run(sb.from('leads').update({ etapa: 'realizada' }).eq('id', id), 'Não foi possível atualizar.')) }, 'Marcar como realizada') : null)),
+        secao('Datas das etapas', h('div', { class: 'tl', style: 'max-height:none;border:0;padding:0' },
+          hist.map((e) => h('div', {}, fmtDT(e.entrou_em), ' — ', h('b', {}, ROTULO[e.etapa]), e.pulada ? ' (passou direto)' : '')))))),
+    h('div', { class: 'cardfoot' },
+      h('button', { class: 'btn bad sm', type: 'button', onclick: async () => {
         if (!confirm('Excluir este lead e todo o histórico? Não dá para desfazer.')) return;
-        await run(sb.from('leads').delete().eq('id', id)); closeDialog(); await recarregar();
-      } }, 'Excluir')));
+        await run(sb.from('leads').delete().eq('id', id)); closeDialog();
+      } }, 'Excluir'),
+      h('div', { class: 'spacer' }),
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeDialog }, 'Cancelar'),
+      h('button', { class: 'btn ok', type: 'button', onclick: async () => {
+        await guardar();
+        if (estagio.value !== lead.etapa) { closeDialog(); await mover({ ...lead, nome: nome.value, valor_venda: Number(valor.value) || 0 }, estagio.value); } else closeDialog();
+      } }, 'Salvar')));
+  dlg.classList.add('largo');
 }
 
 // ---------- hoje ----------
 function telaHoje() {
   const t = hoje(), msgs = S.cfg.mensagens || [], porId = Object.fromEntries(S.leads.map((l) => [l.id, l]));
   const q = semAcento(S.q).trim();
-  const linhas = (S.fups || []).map((f) => ({ f, l: porId[f.lead_id] })).filter((x) => x.l && (!q || semAcento(x.l.nome).includes(q)));
-  const linha = ({ f, l }) => {
-    const texto = (msgs[f.numero - 1] || '').replaceAll('{nome}', l.nome.split(' ')[0]);
-    const atrasado = f.data_prevista < t;
-    return h('div', { class: 'fu' },
-      h('div', { class: 'grow' }, h('b', {}, l.nome), ' ', h('span', { class: 'tag' }, `Follow-up ${f.numero}/4`), ' ',
-        h('span', { class: 'tag ' + (atrasado ? 'late' : f.data_prevista === t ? 'today' : '') }, (atrasado ? 'atrasado • ' : '') + fmtDay(f.data_prevista))),
-      l.telefone ? h('a', { class: 'btn sm', href: waLink(l.telefone, texto), target: '_blank', rel: 'noopener noreferrer' }, 'Abrir WhatsApp') : h('small', {}, 'sem telefone'),
-      h('button', { class: 'btn sm ok', onclick: async () => { await run(sb.from('followups').update({ status: 'feito' }).eq('id', f.id)); await recarregar(); } }, 'Feito'),
-      h('button', { class: 'btn sm ghost', onclick: () => abrirLead(l.id) }, 'Abrir lead'));
+  const itens = [
+    ...(S.fups || []).map((f) => ({ tipo: 'fu', data: f.data_prevista, hora: '', f, l: porId[f.lead_id] })),
+    ...(S.ativ || []).map((a) => ({ tipo: 'at', data: a.vence_em, hora: a.hora || '', a, l: porId[a.lead_id] })),
+  ].filter((x) => x.l && (!S.temp || x.l.temperatura === S.temp) && (!q || semAcento(x.l.nome).includes(q)))
+    .sort((x, y) => (x.data + x.hora).localeCompare(y.data + y.hora));
+  const linha = (x) => {
+    const l = x.l, atrasado = x.data < t;
+    const quando = h('span', { class: 'tag ' + (atrasado ? 'late' : x.data === t ? 'today' : '') }, (atrasado ? 'atrasado • ' : '') + fmtDay(x.data) + (x.hora ? ' ' + x.hora.slice(0, 5) : ''));
+    const abrir = h('button', { class: 'btn sm ghost', onclick: () => abrirLead(l.id) }, 'Abrir lead');
+    if (x.tipo === 'fu') {
+      const texto = (msgs[x.f.numero - 1] || '').replaceAll('{nome}', l.nome.split(' ')[0]);
+      return h('div', { class: 'fu' }, h('div', { class: 'grow' }, h('b', {}, l.nome), ' ', h('span', { class: 'tag' }, `Follow-up ${x.f.numero}/4`), ' ', quando),
+        l.telefone ? h('a', { class: 'btn sm', href: waLink(l.telefone, texto), target: '_blank', rel: 'noopener noreferrer' }, 'Abrir WhatsApp') : h('small', {}, 'sem telefone'),
+        h('button', { class: 'btn sm ok', onclick: async () => { await run(sb.from('followups').update({ status: 'feito' }).eq('id', x.f.id)); await recarregar(); } }, 'Feito'), abrir);
+    }
+    return h('div', { class: 'fu' }, h('div', { class: 'grow' }, h('b', {}, l.nome), ' ', h('span', { class: 'tag' }, TIPO_ATIV[x.a.tipo]), ' ', x.a.descricao, ' ', quando),
+      l.telefone ? h('a', { class: 'btn sm', href: waLink(l.telefone), target: '_blank', rel: 'noopener noreferrer' }, 'WhatsApp') : null,
+      h('button', { class: 'btn sm ok', onclick: async () => { await run(sb.from('atividades').update({ feito_em: new Date().toISOString() }).eq('id', x.a.id)); await recarregar(); } }, 'Feito'), abrir);
   };
-  const devidos = linhas.filter((x) => x.f.data_prevista <= t), futuros = linhas.filter((x) => x.f.data_prevista > t && x.f.data_prevista <= somaDias(t, 7));
+  const devidos = itens.filter((x) => x.data <= t), futuros = itens.filter((x) => x.data > t && x.data <= somaDias(t, 7));
   const novos = leadsFiltrados().filter((l) => l.etapa === 'novo');
   return [
-    h('div', { class: 'panel' }, h('h2', {}, `Follow-ups de hoje e atrasados (${devidos.length})`), devidos.length ? devidos.map(linha) : h('div', { class: 'empty' }, 'Nada pendente. 🎉')),
+    h('div', { class: 'panel' }, h('h2', {}, `Atividades de hoje e atrasadas (${devidos.length})`), devidos.length ? devidos.map(linha) : h('div', { class: 'empty' }, 'Nada pendente. 🎉')),
     h('div', { class: 'panel' }, h('h2', {}, `Próximos 7 dias (${futuros.length})`), futuros.length ? futuros.map(linha) : h('div', { class: 'empty' }, 'Nada agendado.')),
     h('div', { class: 'panel' }, h('h2', {}, `Leads novos aguardando contato (${novos.length})`), novos.length ? novos.map((l) => h('div', { class: 'fu' },
       h('div', { class: 'grow' }, h('b', {}, l.nome), ' ', h('small', {}, `${l.origem} • ${fmtDT(l.criado_em)}`)),
