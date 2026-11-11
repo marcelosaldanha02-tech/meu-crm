@@ -88,6 +88,10 @@
   .panel.resumo.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); }
   .tag.resp { background:#eef2ff; color:#3730a3; }
   .btn.wa { background:#25d366; color:#fff; } .btn.wa:hover { background:#1ebe5b; }
+  .quem { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .papel-sel { width:auto; padding:4px 8px; font-size:13px; }
+  .convite-link { font-size:12px; }
+  .aviso-convite { background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3; border-radius:8px; padding:10px 12px; margin-bottom:10px; font-size:13px; }
   .tag.cold { background:#dbeafe; color:#1e40af; }
   .tag.hot { background:var(--bad); color:#fff; } .tag.warm { background:var(--warn); color:#fff; } .tag.rep { background:var(--brand); color:#fff; }
   .chips { display:flex; gap:6px; flex-wrap:wrap; } .chips .tag { margin:0; }
@@ -167,6 +171,10 @@ const LOGO_LOGIN = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAADDCAYAAA
 // Só a chave PÚBLICA fica aqui. A chave secreta (service_role) NUNCA entra neste arquivo.
 const SUPABASE_URL = 'https://edvkntjdlovqshjpuafv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_zbWLRhH0GppFl3ZmSY36Yw_ku8TP6V1';
+// Convite: a pessoa chega por um link do Supabase com "#...type=invite" (ou "recovery", para criar nova senha)
+const PARAMS_LINK = new URLSearchParams(location.hash.replace(/^#/, ''));
+let criandoSenha = ['invite', 'recovery'].includes(PARAMS_LINK.get('type') || '');
+let erroLinkPendente = PARAMS_LINK.get('error_description') ? 'Este link de convite não vale mais (expirou ou já foi usado). Peça um novo link ao gestor.' : '';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
 
 const TZ = 'America/Sao_Paulo';
@@ -270,7 +278,7 @@ function celebrar() {
 // ---------- estado ----------
 const SITUACOES = [['andamento', 'Em andamento'], ['todas', 'Todas (ganhas e perdidas)'], ['ganhas', 'Ganhas'], ['perdidas', 'Perdidas']];
 let sitSalva = 'andamento'; try { sitSalva = localStorage.getItem('crm_sit') || 'andamento'; } catch { /* sem armazenamento: usa o padrão */ }
-const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', resp: '', equipe: [], sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
+const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', resp: '', equipe: [], eu: null, sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
 // Cada etapa tem a sua cor e um emoji: [cor forte, cor suave de fundo, emoji]
 const COR = {
   novo: ['#2f5bea', '#e6edff', '🆕'], contato: ['#0891b2', '#dcf5fa', '💬'], conversa: ['#7c3aed', '#efe7ff', '🗣️'],
@@ -279,15 +287,21 @@ const COR = {
 };
 const TEMP = { quente: ['🔥 Quente', 'hot'], morno: ['🌤️ Morno', 'warm'], frio: ['🧊 Frio', 'cold'] };
 const app = $('#app');
+const ROTULO_PAPEL = { gestor: 'Gestor', gerente: 'Gerente', vendedor: 'Vendedor' };
+const papel = () => S.eu?.papel || 'gestor';
+const ehGestor = () => papel() === 'gestor';
+const ehGerencia = () => papel() !== 'vendedor';   // gestor ou gerente
+const podeVer = (tela) => ({ funil: true, hoje: true, painel: true, metas: ehGerencia(), config: ehGestor() })[tela] ?? false;
 
 // ---------- login ----------
 function telaLogin(msg = '') {
   const email = h('input', { type: 'email', autocomplete: 'username', required: true });
   const senha = h('input', { type: 'password', autocomplete: 'current-password', required: true });
-  const erro = h('div', { class: 'err' }, msg);
+  const erro = h('div', { class: 'err' }, msg || erroLinkPendente); erroLinkPendente = '';
   const btn = h('button', { class: 'btn', type: 'submit' }, 'Entrar');
   const form = h('form', { class: 'login' }, h('img', { src: LOGO_LOGIN, alt: 'Marcelo Saldanha', class: 'login-logo' }),
-    h('label', {}, 'E-mail', email), h('label', {}, 'Senha', senha), erro, btn);
+    h('label', {}, 'E-mail', email), h('label', {}, 'Senha', senha), erro, btn,
+    h('small', { style: 'text-align:center;color:var(--muted)' }, 'Esqueceu a senha? Peça um novo link ao gestor.'));
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); btn.disabled = true; erro.textContent = '';
     const { error } = await sb.auth.signInWithPassword({ email: email.value.trim(), password: senha.value });
@@ -296,6 +310,38 @@ function telaLogin(msg = '') {
     // se deu certo, onAuthStateChange abre o painel
   });
   app.replaceChildren(h('div', { class: 'login-wrap' }, form)); email.focus();
+}
+
+// ---------- convite: a pessoa cria a PRÓPRIA senha ----------
+function telaCriarSenha() {
+  if (document.querySelector('.criar-senha')) return; // já está na tela (o aviso de login pode chegar mais de uma vez)
+  const s1 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 10 });
+  const s2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 10 });
+  const erro = h('div', { class: 'err' });
+  const btn = h('button', { class: 'btn', type: 'submit' }, 'Salvar senha e entrar');
+  const form = h('form', { class: 'login criar-senha' }, h('img', { src: LOGO_LOGIN, alt: 'Marcelo Saldanha', class: 'login-logo' }),
+    h('h2', { style: 'margin:0;text-align:center;font-size:18px' }, 'Bem-vindo(a)! Crie a sua senha'),
+    h('small', { style: 'color:var(--muted);text-align:center' }, 'Use pelo menos 10 caracteres. Só você vai saber essa senha.'),
+    h('label', {}, 'Nova senha', s1), h('label', {}, 'Repita a senha', s2), erro, btn);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault(); erro.textContent = '';
+    if (s1.value.length < 10) { erro.textContent = 'A senha precisa ter pelo menos 10 caracteres.'; return; }
+    if (s1.value !== s2.value) { erro.textContent = 'As duas senhas não são iguais.'; return; }
+    btn.disabled = true;
+    const { error } = await sb.auth.updateUser({ password: s1.value });
+    if (error) {
+      btn.disabled = false;
+      erro.textContent = /different|same/i.test(error.message || '') ? 'Escolha uma senha diferente da anterior.'
+        : /weak|easy|pwned|short/i.test(error.message || '') ? 'Essa senha é fraca demais. Misture letras, números e símbolos.'
+        : 'Não foi possível salvar a senha. Peça um novo link ao gestor.';
+      return;
+    }
+    await sb.rpc('aceitar_convite');        // marca o convite como aceito
+    criandoSenha = false;
+    try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ok */ }  // limpa o link da barra
+    abrirApp();
+  });
+  app.replaceChildren(h('div', { class: 'login-wrap' }, form)); s1.focus();
 }
 
 // ---------- dados ----------
@@ -328,6 +374,9 @@ const leadsFiltrados = () => {
 async function abrirApp() {
   const { data: ok, error } = await sb.rpc('usuario_autorizado');
   if (error || !ok) { await sb.auth.signOut(); return telaLogin('Este e-mail não tem permissão para usar o CRM.'); }
+  // quem sou eu (gestor, gerente ou vendedor). Se o SQL de papéis ainda não foi rodado, segue como gestor (modelo antigo).
+  { const { data: pf, error: ep } = await sb.rpc('meu_perfil'); S.eu = (!ep && pf) ? pf : { papel: 'gestor', nome: '', legado: true }; }
+  if (!podeVer(S.view)) S.view = 'funil';
   const busca = h('input', { class: 'search', type: 'search', placeholder: 'Buscar nome, e-mail ou telefone', 'aria-label': 'Buscar',
     oninput: (e) => { S.q = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } });
   const filtro = h('select', { class: 'filtro', 'aria-label': 'Filtrar por temperatura', onchange: (e) => { S.temp = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } },
@@ -337,10 +386,11 @@ async function abrirApp() {
     S.view = 'funil'; desenhar(); } },
     ...SITUACOES.map(([k, n]) => h('option', { value: k, selected: k === S.sit }, 'Negociações: ' + n)));
   const filtroResp = h('select', { class: 'filtro', id: 'filtroResp', hidden: true, 'aria-label': 'Filtrar por responsável', onchange: (e) => { S.resp = e.target.value; desenhar(); } });
-  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['metas', 'Metas'], ['config', 'Config']].map(([id, nome]) =>
+  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['metas', 'Metas'], ['config', 'Config']].filter(([id]) => podeVer(id)).map(([id, nome]) =>
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
     h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, situacao, filtro, filtroResp, h('div', { class: 'spacer' }),
+      h('span', { class: 'quem' }, '👤 ' + (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()]),
       h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
       h('button', { class: 'btn ghost', onclick: () => sb.auth.signOut() }, 'Sair')),
     h('main', { id: 'view' }));
@@ -351,7 +401,7 @@ async function abrirApp() {
 function montarFiltroResp() {
   const s = $('#filtroResp'); if (!s) return;
   const ativos = (S.equipe || []).filter((m) => m.ativo);
-  s.hidden = ativos.length < 2;
+  s.hidden = ativos.length < 2 || !ehGerencia();
   if (s.hidden) { S.resp = ''; return; }
   s.replaceChildren(h('option', { value: '' }, 'Todos os responsáveis'), h('option', { value: '0' }, 'Sem responsável'),
     ...ativos.map((m) => h('option', { value: String(m.id) }, '👤 ' + m.nome)));
@@ -365,7 +415,7 @@ async function desenhar() {
   try {
     if (S.view === 'funil') v.replaceChildren(quadro());
     else if (S.view === 'hoje') v.replaceChildren(...telaHoje());
-    else if (S.view === 'painel') v.replaceChildren(...await telaPainel());
+    else if (S.view === 'painel') v.replaceChildren(...(await telaPainel()).filter(Boolean));
     else if (S.view === 'metas') v.replaceChildren(...await telaMetas());
     else v.replaceChildren(...telaConfig());
   } catch (e) { console.error(e); }
@@ -508,7 +558,7 @@ async function abrirLead(id) {
   const selTemp = h('select', {}, ...[['auto', rotAuto], ['quente', '🔥 Quente'], ['morno', '🌤️ Morno'], ['frio', '🧊 Frio'], ['sem', 'Sem classificação']]
     .map(([v, r]) => h('option', { value: v, selected: v === tempAtual }, r)));
   // responsável: pessoas ativas da equipe (mais a atual, se já estiver inativa)
-  const selResp = h('select', {}, h('option', { value: '' }, 'Sem responsável'),
+  const selResp = h('select', { disabled: !ehGerencia(), title: ehGerencia() ? '' : 'Só o gestor ou o gerente troca o responsável' }, h('option', { value: '' }, 'Sem responsável'),
     ...(S.equipe || []).filter((m) => m.ativo || m.id === lead.responsavel_id)
       .map((m) => h('option', { value: String(m.id), selected: m.id === lead.responsavel_id }, m.nome + (m.ativo ? '' : ' (inativo)'))));
 
@@ -649,10 +699,10 @@ async function abrirLead(id) {
         secao('Datas das etapas', h('div', { class: 'tl', style: 'max-height:none;border:0;padding:0' },
           hist.map((e) => h('div', {}, fmtDT(e.entrou_em), ' — ', h('b', {}, ROTULO[e.etapa]), e.pulada ? ' (passou direto)' : '')))))),
     h('div', { class: 'cardfoot' },
-      h('button', { class: 'btn bad sm', type: 'button', onclick: async () => {
+      ehGestor() ? h('button', { class: 'btn bad sm', type: 'button', onclick: async () => {
         if (!confirm('Excluir este lead e todo o histórico? Não dá para desfazer.')) return;
         await run(sb.from('leads').delete().eq('id', id)); closeDialog();
-      } }, 'Excluir'),
+      } }, 'Excluir') : null,
       h('div', { class: 'spacer' }),
       h('button', { class: 'btn ghost', type: 'button', onclick: closeDialog }, 'Cancelar'),
       h('button', { class: 'btn ok', type: 'button', onclick: async () => {
@@ -712,6 +762,7 @@ async function telaPainel() {
   // Proposta e Fechado são medidos sobre as reuniões realizadas: a venda pode sair na própria reunião, sem proposta.
   const base = (id, i) => (id === 'proposta' || id === 'fechado') ? c.realizada : (i ? c[fluxo[i - 1]] : 0);
   return [
+    papel() === 'vendedor' ? h('div', { class: 'panel' }, '👤 Estes são os seus números: só os leads em que você é o responsável.') : null,
     h('div', { class: 'panel actions' }, h('b', {}, 'Mês:'), h('input', { type: 'month', value: p.mes, style: 'width:auto', onchange: (e) => { S.mes = e.target.value || null; desenhar(); } })),
     h('div', { class: 'kpis' }, kpi('Leads novos', p.leads), kpi('Reuniões agendadas', c.agendada), kpi('Reuniões realizadas', p.reunioes), kpi('Propostas enviadas', p.propostas ?? c.proposta ?? 0), kpi('Vendas', p.vendas),
       kpi('Faturamento', brl(p.receita)), kpi('Reunião → venda', pct(p.conversao_reuniao_venda)), kpi('Lead → reunião', pct(p.conversao_lead_reuniao)),
@@ -804,6 +855,47 @@ async function telaMetas() {
   ].filter(Boolean);
 }
 
+// ---------- equipe: convites (a função gerenciar-equipe, no Supabase, cria o login) ----------
+async function chamarEquipe(corpo) {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(SUPABASE_URL + '/functions/v1/gerenciar-equipe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: 'Bearer ' + (session?.access_token || '') },
+      body: JSON.stringify(corpo),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.erro || 'Erro ' + r.status);
+    return j;
+  } catch (e) {
+    toast(/failed to fetch|networkerror/i.test(e.message) ? 'Não foi possível falar com o servidor de convites. A função "gerenciar-equipe" já foi publicada no Supabase?' : e.message);
+    throw e;
+  }
+}
+
+function dialogoConvite(nome, papelId, resp, novoLink = false) {
+  const link = resp.link, primeiro = nome.split(' ')[0];
+  const mensagem = `Olá, ${primeiro}! Você foi convidado(a) para o CRM como ${ROTULO_PAPEL[papelId]}. Abra este link para criar a sua senha: ${link}`;
+  dlg.onclose = () => { if (!dlg.open) recarregar(); };
+  if (!link) {
+    openDialog(h('h2', {}, '✉️ Convite enviado por e-mail'),
+      h('p', {}, 'O Supabase enviou o convite para o e-mail de ' + nome + '. A pessoa abre o e-mail, clica no link e cria a própria senha.'),
+      h('small', { style: 'color:var(--muted)' }, 'Se o e-mail não chegar (olhe o spam), use "Gerar novo link" e mande o link pelo WhatsApp.'),
+      h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: closeDialog }, 'Fechar')));
+    return;
+  }
+  const caixa = h('input', { readonly: true, value: link, class: 'convite-link', onfocus: (e) => e.target.select() });
+  openDialog(h('h2', {}, (novoLink ? '🔗 Novo link para ' : '🎉 Convite criado para ') + nome),
+    h('p', {}, 'Mande este link para a pessoa. Ela abre, cria a própria senha e já entra no CRM como ', h('b', {}, ROTULO_PAPEL[papelId]), '.'),
+    caixa,
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn', type: 'button', onclick: async () => {
+        try { await navigator.clipboard.writeText(link); toast('Link copiado!'); } catch { caixa.select(); toast('Selecionei o link: use Ctrl+C para copiar.'); }
+      } }, 'Copiar link'),
+      h('a', { class: 'btn wa', href: 'https://wa.me/?text=' + encodeURIComponent(mensagem), target: '_blank', rel: 'noopener noreferrer' }, '💬 Enviar pelo WhatsApp'),
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeDialog }, 'Fechar')),
+    h('small', { style: 'color:var(--muted)' }, 'O link vale por pouco tempo (por padrão, 1 hora) e só pode ser usado uma vez. Se expirar, gere outro em "Gerar novo link".'));
+}
+
 // ---------- config ----------
 function telaConfig() {
   const mt = S.cfg.metas || {}, msgs = S.cfg.mensagens || [];
@@ -817,7 +909,9 @@ function telaConfig() {
   const padrao = h('select', {}, h('option', { value: '0' }, 'Ninguém'),
     ...equipe.filter((m) => m.ativo).map((m) => h('option', { value: String(m.id), selected: String(m.id) === padraoAtual }, m.nome)));
   const novoNome = h('input', { placeholder: 'Nome da pessoa', maxlength: 100 });
-  const novoMail = h('input', { type: 'email', placeholder: 'E-mail (opcional)', maxlength: 254 });
+  const novoMail = h('input', { type: 'email', placeholder: 'E-mail da pessoa', maxlength: 254 });
+  const novoPapel = h('select', {}, ...[['vendedor', 'Vendedor'], ['gerente', 'Gerente'], ['gestor', 'Gestor']].map(([v, r]) => h('option', { value: v }, r)));
+  const enviarEmail = h('input', { type: 'checkbox', id: 'enviarEmail', style: 'width:auto' });
 
   const salvar = async (avisar = true) => {
     const valores = Object.fromEntries(metas.map((x) => [x.chave, Number(x.label.lastChild.value) || 0]).filter(([, v]) => v > 0));
@@ -828,31 +922,73 @@ function telaConfig() {
       { chave: 'mensagens', valor: tpl.map((l) => l.lastChild.value.slice(0, 1000)) }]), 'Não foi possível salvar.');
     await carregar(); if (avisar) toast('Salvo!');
   };
-  // ações da equipe salvam antes o que você já digitou na tela, para nada se perder
-  const acaoEquipe = (fn) => async () => { await salvar(false); await fn(); await carregar(); desenhar(); };
+  // as ações da equipe salvam antes o que você já digitou nesta tela; a função pode devolver algo para abrir depois
+  const acaoEquipe = (fn) => async () => {
+    let depois;
+    try { await salvar(false); depois = await fn(); } catch { return; }
+    await carregar(); desenhar();
+    if (typeof depois === 'function') depois();
+  };
 
-  const linhas = equipe.map((m) => h('div', { class: 'fu' },
-    h('div', { class: 'grow' }, h('b', {}, m.nome), ' ', m.email ? h('small', {}, m.email) : null, ' ',
-      h('span', { class: 'tag' + (m.ativo ? ' won' : '') }, m.ativo ? 'ativo' : 'inativo')),
-    h('button', { class: 'btn sm ghost', type: 'button', onclick: acaoEquipe(() => run(sb.from('equipe').update({ ativo: !m.ativo }).eq('id', m.id), 'Não foi possível atualizar.')) }, m.ativo ? 'Desativar' : 'Ativar'),
-    h('button', { class: 'btn sm bad', type: 'button', onclick: acaoEquipe(async () => {
-      if (!confirm('Remover ' + m.nome + ' da equipe? Os leads dele ficam sem responsável.')) return;
-      await run(sb.from('equipe').delete().eq('id', m.id), 'Não foi possível remover.');
-    }) }, 'Remover')));
-  const adicionar = acaoEquipe(async () => {
-    if (!novoNome.value.trim()) { toast('Escreva o nome da pessoa.'); return; }
-    await run(sb.from('equipe').insert({ nome: novoNome.value.trim().slice(0, 100), email: novoMail.value.trim().slice(0, 254) }), 'Não foi possível adicionar.');
+  const estado = (m) => !m.auth_user_id ? ['Sem acesso', ''] : m.aceitou_em ? ['✅ Acesso ativo', ' won'] : ['✉️ Convite pendente', ' rep'];
+  const convidarMembro = (m) => acaoEquipe(async () => {
+    let email = m.email;
+    if (!email) {
+      const r = await ask('E-mail de ' + m.nome, [{ name: 'e', label: 'E-mail da pessoa', type: 'email', required: true }]);
+      if (!r) throw new Error('cancelado'); email = r.e.trim();
+    }
+    const r = await chamarEquipe({ acao: 'convidar', nome: m.nome, email, papel: m.papel, enviar_email: false });
+    return () => dialogoConvite(m.nome, m.papel, r);
+  });
+  const novoLinkDe = (m) => acaoEquipe(async () => {
+    const r = await chamarEquipe({ acao: 'novo_link', equipe_id: m.id });
+    return () => dialogoConvite(m.nome, m.papel, r, true);
+  });
+  const remover = (m) => acaoEquipe(async () => {
+    if (!confirm('Remover ' + m.nome + ' da equipe?' + (m.auth_user_id ? ' O login dessa pessoa também será apagado e ela perde o acesso.' : ' Os leads dela ficam sem responsável.'))) throw new Error('cancelado');
+    if (m.auth_user_id) await chamarEquipe({ acao: 'remover', equipe_id: m.id });
+    else await run(sb.from('equipe').delete().eq('id', m.id), 'Não foi possível remover.');
+  });
+
+  const linhas = equipe.map((m) => {
+    const [txt, cls] = estado(m);
+    const papelSel = h('select', { class: 'papel-sel', 'aria-label': 'Papel de ' + m.nome, onchange: async (e) => {
+      const { error } = await sb.from('equipe').update({ papel: e.target.value }).eq('id', m.id);
+      toast(error ? (/gestor/i.test(error.message) ? 'É preciso ter pelo menos um gestor ativo.' : 'Não foi possível mudar o papel.') : 'Papel atualizado.');
+      await carregar(); desenhar();
+    } }, ...[['vendedor', 'Vendedor'], ['gerente', 'Gerente'], ['gestor', 'Gestor']].map(([v, r]) => h('option', { value: v, selected: v === m.papel }, r)));
+    return h('div', { class: 'fu' },
+      h('div', { class: 'grow' }, h('b', {}, m.nome), ' ', m.email ? h('small', {}, m.email) : h('small', {}, '(sem e-mail)'), ' ',
+        h('span', { class: 'tag' + cls }, txt), m.ativo ? null : h('span', { class: 'tag' }, 'inativo')),
+      papelSel,
+      m.auth_user_id
+        ? h('button', { class: 'btn sm ghost', type: 'button', onclick: novoLinkDe(m) }, 'Gerar novo link')
+        : h('button', { class: 'btn sm', type: 'button', onclick: convidarMembro(m) }, 'Convidar'),
+      h('button', { class: 'btn sm ghost', type: 'button', onclick: acaoEquipe(() => run(sb.from('equipe').update({ ativo: !m.ativo }).eq('id', m.id), 'Não foi possível atualizar.')) }, m.ativo ? 'Desativar' : 'Ativar'),
+      h('button', { class: 'btn sm bad', type: 'button', onclick: remover(m) }, 'Remover'));
+  });
+  const convidar = acaoEquipe(async () => {
+    const nome = novoNome.value.trim(), email = novoMail.value.trim(), papelId = novoPapel.value;
+    if (!nome) { toast('Escreva o nome da pessoa.'); throw new Error('vazio'); }
+    if (!email) { toast('O e-mail é obrigatório para criar o convite.'); throw new Error('vazio'); }
+    const r = await chamarEquipe({ acao: 'convidar', nome, email, papel: papelId, enviar_email: enviarEmail.checked });
+    return () => dialogoConvite(nome, papelId, r);
   });
 
   return [
     h('div', { class: 'panel' }, h('h2', {}, 'Metas do mês'),
       h('p', { class: 'empty' }, 'Preencha o que quiser. O que ficar em branco aparece como "meta em aberto" na tela Metas. Valem para o mês corrente e para os próximos, até você mudar.'),
       h('div', { class: 'grid3' }, ...metas.map((x) => x.label))),
-    h('div', { class: 'panel' }, h('h2', {}, 'Equipe e responsáveis'),
-      h('p', { class: 'empty' }, 'Cadastre as pessoas que podem ser o responsável por uma negociação. Cada lead tem um campo "Responsável" no card. Dar acesso de login a alguém novo é feito no Supabase (Authentication → Users), à parte.'),
+    h('div', { class: 'panel' }, h('h2', {}, 'Equipe e acessos'),
+      location.protocol === 'file:' ? h('div', { class: 'aviso-convite' }, '⚠️ Você abriu o CRM direto do computador. Os convites só funcionam com o CRM publicado (GitHub Pages): o link do convite precisa voltar para o endereço público do CRM.') : null,
+      h('p', { class: 'empty' }, 'Cada pessoa recebe um convite e cria o próprio login e senha. ',
+        h('b', {}, 'Gestor'), ': tudo (equipe, configurações, metas, excluir). ', h('b', {}, 'Gerente'), ': vê e edita todos os leads, vê Painel e Metas. ',
+        h('b', {}, 'Vendedor'), ': só os leads em que é o responsável. Sempre existe pelo menos um gestor.'),
       linhas.length ? linhas : h('div', { class: 'empty' }, 'Nenhuma pessoa cadastrada ainda.'),
-      h('div', { class: 'grid3', style: 'margin-top:10px;align-items:end' }, h('label', {}, 'Nome', novoNome), h('label', {}, 'E-mail', novoMail),
-        h('button', { class: 'btn', type: 'button', onclick: adicionar }, '+ Adicionar pessoa')),
+      h('h3', { style: 'margin:16px 0 6px;font-size:14px' }, 'Convidar uma pessoa'),
+      h('div', { class: 'grid3', style: 'align-items:end' }, h('label', {}, 'Nome', novoNome), h('label', {}, 'E-mail', novoMail), h('label', {}, 'Papel', novoPapel)),
+      h('label', { style: 'flex-direction:row;align-items:center;gap:8px;margin-top:8px', for: 'enviarEmail' }, enviarEmail, 'Tentar enviar também por e-mail (precisa de e-mail configurado no Supabase; o link para o WhatsApp funciona sempre)'),
+      h('div', { class: 'actions', style: 'margin-top:10px' }, h('button', { class: 'btn', type: 'button', onclick: convidar }, '✉️ Criar convite')),
       h('label', { style: 'margin-top:14px;max-width:340px' }, 'Responsável padrão dos leads novos', padrao)),
     h('div', { class: 'panel' }, h('h2', {}, 'Mensagens de follow-up (WhatsApp)'),
       h('p', { class: 'empty' }, 'Use {nome} para o primeiro nome do lead. Dias: 1º = 1 dia após a reunião, 2º = +3, 3º = +1, 4º = +2.'), tpl),
@@ -872,8 +1008,9 @@ function exportarCsv() {
 
 // ---------- início ----------
 sb.auth.onAuthStateChange((evento, sessao) => {
-  if (evento === 'SIGNED_OUT' || !sessao) { S.leads = []; S.cfg = {}; S.proximo = {}; closeDialog(); telaLogin(); }
-  else if (evento === 'SIGNED_IN' || evento === 'INITIAL_SESSION') abrirApp();
+  if (evento === 'SIGNED_OUT' || !sessao) { criandoSenha = false; S.leads = []; S.cfg = {}; S.proximo = {}; S.eu = null; closeDialog(); telaLogin(); return; }
+  if (criandoSenha) { telaCriarSenha(); return; }  // chegou por um convite: primeiro cria a senha
+  if (evento === 'SIGNED_IN' || evento === 'INITIAL_SESSION') abrirApp();
 });
 </script>
 </body>
