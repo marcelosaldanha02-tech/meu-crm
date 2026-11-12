@@ -16,7 +16,8 @@
   * { box-sizing:border-box; }
   body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
   header { display:flex; align-items:center; gap:10px 16px; padding:10px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; flex-wrap:wrap; }
-  header h1 { font-size:16px; margin:0 6px 0 0; }
+  header h1 { font-size:16px; margin:0 6px 0 0; line-height:0; }
+  .topo-logo { display:block; height:34px; width:auto; }
   nav { display:flex; gap:4px; flex-wrap:wrap; }
   nav button { background:none; border:0; padding:8px 12px; border-radius:8px; color:var(--muted); font:inherit; cursor:pointer; }
   nav button.on { background:var(--brand); color:#fff; }
@@ -430,7 +431,7 @@ async function abrirApp() {
   const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['checklist', 'Checklist'], ['metas', 'Metas'], ['config', 'Config']].filter(([id]) => podeVer(id)).map(([id, nome]) =>
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
-    h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, situacao, filtro, filtroResp, h('div', { class: 'spacer' }),
+    h('header', {}, h('h1', {}, h('img', { src: LOGO_LOGIN, alt: 'Marcelo Saldanha', class: 'topo-logo' })), nav, busca, situacao, filtro, filtroResp, h('div', { class: 'spacer' }),
       h('button', { class: 'sino', id: 'sino', type: 'button', title: 'Avisos', 'aria-label': 'Avisos', onclick: abrirSino }, '🔔', h('span', { class: 'sino-n', id: 'sinoN', hidden: true })),
       h('button', { class: 'quem', id: 'chipQuem', type: 'button', title: S.eu.legado ? '' : 'Trocar minha foto', onclick: minhaFoto }, avatar(S.eu, 26), (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()], (S.eu.foto || S.eu.legado) ? null : h('span', { title: 'Clique para escolher a sua foto' }, '📷')),
       h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
