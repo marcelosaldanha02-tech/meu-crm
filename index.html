@@ -927,45 +927,21 @@ async function atualizarAvisos(forcar = false) {
   if (!S.eu) return;
   if (!forcar && Date.now() - AV.ultima < 20000) return;   // não consulta o banco toda hora
   AV.ultima = Date.now();
-  const desde = new Date(Date.now() - 3 * 864e5).toISOString(), meu = S.eu.id, hojeStr = hoje();
-  const porId = new Map(S.leads.map((l) => [l.id, l]));
-  const tenta = async (comColuna, semColuna) => { let r = await comColuna; if (r.error && semColuna) r = await semColuna; return r.error ? [] : (r.data || []); };
-  const qNotas = (c) => sb.from('anotacoes').select(c).eq('tipo', 'nota').gte('criado_em', desde).order('criado_em', { ascending: false }).limit(60);
-  const qHist = (c) => sb.from('historico_etapas').select(c).gte('entrou_em', desde).eq('pulada', false).order('entrou_em', { ascending: false }).limit(120);
-  const [notas, hist, etiquetas, lidosReg, pend] = await Promise.all([
-    tenta(qNotas('id,lead_id,texto,criado_em,autor_id'), qNotas('id,lead_id,texto,criado_em')),
-    tenta(qHist('id,lead_id,etapa,entrou_em,por_id'), qHist('id,lead_id,etapa,entrou_em')),
-    tenta(sb.from('etiquetas').select('id,lead_id,texto,criado_em').gte('criado_em', desde).order('criado_em', { ascending: false }).limit(40)),
-    sb.from('avisos_lidos').select('chave'),
-    sb.rpc('checklist_pendencia', { p_ignorar_visto: true }),
-  ]);
-  // quem já leu
+  const meu = S.eu.id, hojeStr = hoje(), porId = new Map(S.leads.map((l) => [l.id, l]));
+  const lidosReg = await sb.from('avisos_lidos').select('chave');
   if (!lidosReg.error) AV.lidos = new Set((lidosReg.data || []).map((x) => x.chave));
   else { try { AV.lidos = new Set(JSON.parse(localStorage.getItem(chaveLocal()) || '[]')); } catch { /* ok */ } }
 
+  // O sino mostra só tarefas agendadas: reuniões de hoje e follow-ups que vencem hoje (ou estão atrasados).
   const itens = [], de = (l) => ({ lead: l.id, resp: l.responsavel_id, minha: l.responsavel_id === meu });
-  // ✉️ mensagens: lead novo, preencheu de novo, anotação de outra pessoa
-  for (const l of S.leads) if (l.criado_em >= desde) itens.push({ chave: 'lead:' + l.id, quando: l.criado_em, tipo: 'msg', icone: '✉️', texto: 'Novo lead: ' + l.nome + (l.origem ? ' (' + l.origem + ')' : ''), ...de(l) });
-  for (const e of etiquetas) { const l = porId.get(e.lead_id); if (l && /preencheu/i.test(e.texto)) itens.push({ chave: 'etq:' + e.id, quando: e.criado_em, tipo: 'msg', icone: '✉️', texto: l.nome + ' preencheu o formulário de novo', ...de(l) }); }
-  for (const n of notas) {
-    const l = porId.get(n.lead_id); if (!l || (n.autor_id && n.autor_id === meu)) continue;
-    const quem = nomeDe(n.autor_id) || 'Alguém';
-    itens.push({ chave: 'nota:' + n.id, quando: n.criado_em, tipo: 'msg', icone: '📝', texto: quem + ' anotou em ' + l.nome + ': “' + n.texto.slice(0, 70) + (n.texto.length > 70 ? '…' : '') + '”', ...de(l) });
-  }
-  // 🔀 cards que mudaram de etapa (não avisa do que você mesmo fez)
-  for (const e of hist) {
-    const l = porId.get(e.lead_id); if (!l || ['novo', 'quente'].includes(e.etapa) || (e.por_id && e.por_id === meu)) continue;
-    const por = nomeDe(e.por_id) ? ' (por ' + nomeDe(e.por_id) + ')' : '';
-    const texto = e.etapa === 'fechado' ? l.nome + ': negociação ganha' + por : e.etapa === 'perdido' ? l.nome + ': negociação perdida' + por : l.nome + ' foi para ' + (ROTULO[e.etapa] || e.etapa) + por;
-    itens.push({ chave: 'etapa:' + e.id, quando: e.entrou_em, tipo: 'etapa', icone: e.etapa === 'fechado' ? '🏆' : e.etapa === 'perdido' ? '💔' : '🔀', texto, ...de(l) });
-  }
-  // 📅 reuniões de hoje
   for (const l of S.leads) if (l.reuniao_em && l.situacao === 'andamento' && diaBR(l.reuniao_em) === hojeStr)
     itens.push({ chave: 'reuniao:' + l.id + ':' + hojeStr, quando: l.reuniao_em, tipo: 'reuniao', icone: '📅', texto: 'Reunião hoje às ' + horaBR(l.reuniao_em) + ' — ' + l.nome, ...de(l) });
-  // ✅ checklist de ontem pendente (só para mim)
-  if (pend.data) itens.push({ chave: 'check:' + pend.data.dia, quando: new Date().toISOString(), tipo: 'checklist', icone: '📋', texto: 'Checklist de ' + fmtDay(pend.data.dia).slice(0, 5) + ': você ainda não bateu a meta em ' + pend.data.itens.length + (pend.data.itens.length === 1 ? ' item' : ' itens'), minha: true, soMinha: true, dia: pend.data.dia });
-
-  itens.sort((a, b) => (a.tipo === 'reuniao') !== (b.tipo === 'reuniao') ? (a.tipo === 'reuniao' ? -1 : 1) : (a.tipo === 'reuniao' ? new Date(a.quando) - new Date(b.quando) : new Date(b.quando) - new Date(a.quando)));
+  for (const f of (S.fups || [])) {
+    const l = porId.get(f.lead_id); if (!l || l.situacao !== 'andamento' || String(f.data_prevista).slice(0, 10) > hojeStr) continue;
+    const atrasado = String(f.data_prevista).slice(0, 10) < hojeStr;
+    itens.push({ chave: 'fu:' + f.id, quando: f.data_prevista, tipo: 'reuniao', icone: '💬', texto: 'Follow-up ' + (f.numero ?? '') + (atrasado ? ' atrasado' : ' de hoje') + ' — ' + l.nome, ...de(l) });
+  }
+  itens.sort((x, y) => new Date(x.quando) - new Date(y.quando));
   AV.itens = itens.slice(0, 80);
   atualizarBadgeSino(); if (AV.aberto) renderSino();
 }
@@ -1008,8 +984,8 @@ function renderSino() {
     h('div', { class: 'sino-lista' }, lista.length ? lista.map((i) => {
       const lido = AV.lidos.has(i.chave);
       return h('button', { type: 'button', class: 'sino-item' + (lido ? '' : ' novo'), onclick: () => abrirItemAviso(i) },
-        h('span', { class: 'sino-ic' }, i.icone), h('span', { class: 'sino-tx' }, i.texto, h('small', {}, i.tipo === 'reuniao' ? 'hoje' : haQuanto(i.quando))), lido ? null : h('span', { class: 'sino-ponto', title: 'Não lido' }));
-    }) : h('div', { class: 'empty', style: 'padding:18px;text-align:center' }, 'Nada de novo por aqui. 🎉')));
+        h('span', { class: 'sino-ic' }, i.icone), h('span', { class: 'sino-tx' }, i.texto, h('small', {}, i.icone === '📅' ? 'hoje' : 'agendado')), lido ? null : h('span', { class: 'sino-ponto', title: 'Não lido' }));
+    }) : h('div', { class: 'empty', style: 'padding:18px;text-align:center' }, 'Nenhuma tarefa agendada para hoje. 🎉')));
   $('#painelSino')?.remove(); document.body.append(painel);
 }
 
