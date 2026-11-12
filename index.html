@@ -88,6 +88,26 @@
   .panel.resumo.perdida { background:rgba(220,38,38,.14); border-color:var(--bad); }
   .tag.resp { background:#eef2ff; color:#3730a3; }
   .btn.wa { background:#25d366; color:#fff; } .btn.wa:hover { background:#1ebe5b; }
+  /* sino de avisos e checklist */
+  .sino { position:relative; background:none; border:0; font-size:20px; cursor:pointer; padding:4px 8px; border-radius:999px; line-height:1; }
+  .sino:hover { background:var(--line); }
+  .sino-n { position:absolute; top:-3px; right:-3px; background:var(--bad); color:#fff; border-radius:999px; font-size:11px; font-weight:700; min-width:18px; height:18px; display:grid; place-items:center; padding:0 4px; }
+  .sino-n.mini { position:static; margin-left:6px; min-width:16px; height:16px; font-size:10px; }
+  .painel-sino { position:fixed; top:56px; right:12px; width:min(420px,94vw); max-height:72vh; display:flex; flex-direction:column; background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:0 16px 48px rgba(40,60,120,.25); z-index:70; overflow:hidden; }
+  .sino-topo { display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid var(--line); }
+  .sino-abas { display:flex; gap:4px; padding:6px 10px 0; border-bottom:1px solid var(--line); }
+  .sino-aba { background:none; border:0; padding:8px 14px; font:inherit; color:var(--muted); cursor:pointer; border-bottom:3px solid transparent; display:inline-flex; align-items:center; }
+  .sino-aba.on { color:var(--brand); border-bottom-color:var(--brand); font-weight:600; }
+  .sino-lista { overflow:auto; }
+  .sino-item { display:flex; gap:10px; align-items:flex-start; width:100%; text-align:left; background:var(--card); border:0; border-bottom:1px solid var(--line); padding:11px 14px; font:inherit; color:var(--text); cursor:pointer; }
+  .sino-item:hover { background:var(--bg); } .sino-item.novo { background:#f3f6ff; }
+  .sino-ic { font-size:18px; } .sino-tx { flex:1; min-width:0; overflow-wrap:anywhere; } .sino-tx small { display:block; color:var(--muted); }
+  .sino-ponto { width:9px; height:9px; border-radius:50%; background:var(--brand); margin-top:6px; flex:none; }
+  .ck-linha { display:grid; grid-template-columns:minmax(140px,1.2fr) 120px 1.4fr; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  .ck-nome small, .ck-prog small { display:block; color:var(--muted); } .ck-prog small.ok { color:#15803d; font-weight:700; }
+  .ck-tab { border-collapse:collapse; width:100%; } .ck-tab th, .ck-tab td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); font-size:13px; white-space:nowrap; } .ck-tab th { color:var(--muted); font-weight:600; }
+  .ck-ok { color:#15803d; font-weight:600; } .ck-falta { color:#b45309; font-weight:600; } .ck-tab small { color:var(--muted); font-weight:400; display:inline; }
+  @media (max-width:700px) { .ck-linha { grid-template-columns:1fr; } .painel-sino { top:8px; right:8px; max-height:80vh; } }
   .quem { display:inline-flex; align-items:center; gap:8px; background:none; border:0; color:var(--muted); font:inherit; font-size:13px; white-space:nowrap; cursor:pointer; padding:3px 8px 3px 4px; border-radius:999px; }
   .quem:hover { background:var(--line); }
   .av { border-radius:50%; object-fit:cover; flex:none; display:inline-grid; place-items:center; vertical-align:middle; }
@@ -283,7 +303,7 @@ function celebrar() {
 // ---------- estado ----------
 const SITUACOES = [['andamento', 'Em andamento'], ['todas', 'Todas (ganhas e perdidas)'], ['ganhas', 'Ganhas'], ['perdidas', 'Perdidas']];
 let sitSalva = 'andamento'; try { sitSalva = localStorage.getItem('crm_sit') || 'andamento'; } catch { /* sem armazenamento: usa o padrão */ }
-const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', resp: '', equipe: [], eu: null, sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
+const S = { leads: [], proximo: {}, cfg: {}, etiq: {}, view: 'funil', q: '', temp: '', resp: '', equipe: [], eu: null, ckDia: '', ck: { metricas: [], metas: [] }, sit: SITUACOES.some(([k]) => k === sitSalva) ? sitSalva : 'andamento', mes: null, atrasados: 0 };
 // Cada etapa tem a sua cor e um emoji: [cor forte, cor suave de fundo, emoji]
 const COR = {
   novo: ['#2f5bea', '#e6edff', '🆕'], contato: ['#0891b2', '#dcf5fa', '💬'], conversa: ['#7c3aed', '#efe7ff', '🗣️'],
@@ -296,7 +316,7 @@ const ROTULO_PAPEL = { gestor: 'Gestor', gerente: 'Gerente', vendedor: 'Vendedor
 const papel = () => S.eu?.papel || 'gestor';
 const ehGestor = () => papel() === 'gestor';
 const ehGerencia = () => papel() !== 'vendedor';   // gestor ou gerente
-const podeVer = (tela) => ({ funil: true, hoje: true, painel: true, metas: ehGerencia(), config: ehGestor() })[tela] ?? false;
+const podeVer = (tela) => ({ funil: true, hoje: true, painel: true, checklist: true, metas: ehGerencia(), config: ehGestor() })[tela] ?? false;
 
 // ---------- login ----------
 function telaLogin(msg = '') {
@@ -324,9 +344,19 @@ function telaCriarSenha() {
   const s2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 10 });
   const erro = h('div', { class: 'err' });
   const btn = h('button', { class: 'btn', type: 'submit' }, 'Salvar senha e entrar');
+  // foto opcional
+  let fotoEscolhida = null;
+  const previaFoto = h('div', { class: 'foto-previa' }, avatar({ nome: '?' }, 84));
+  const arquivoFoto = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', style: 'display:none', onchange: async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try { fotoEscolhida = await redimensionarFoto(f); previaFoto.replaceChildren(avatar({ nome: '?', foto: fotoEscolhida }, 84)); erro.textContent = ''; }
+    catch (err) { erro.textContent = err.message; }
+  } });
+  const botaoFoto = h('button', { class: 'btn ghost sm', type: 'button', style: 'align-self:center', onclick: () => arquivoFoto.click() }, '📷 Escolher minha foto (opcional)');
   const form = h('form', { class: 'login criar-senha' }, h('img', { src: LOGO_LOGIN, alt: 'Marcelo Saldanha', class: 'login-logo' }),
     h('h2', { style: 'margin:0;text-align:center;font-size:18px' }, 'Bem-vindo(a)! Crie a sua senha'),
     h('small', { style: 'color:var(--muted);text-align:center' }, 'Use pelo menos 10 caracteres. Só você vai saber essa senha.'),
+    previaFoto, botaoFoto, arquivoFoto,
     h('label', {}, 'Nova senha', s1), h('label', {}, 'Repita a senha', s2), erro, btn);
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); erro.textContent = '';
@@ -342,6 +372,7 @@ function telaCriarSenha() {
       return;
     }
     await sb.rpc('aceitar_convite');        // marca o convite como aceito
+    if (fotoEscolhida) await sb.rpc('salvar_minha_foto', { p_foto: fotoEscolhida }); // a foto é opcional: se falhar, segue sem ela
     criandoSenha = false;
     try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ok */ }  // limpa o link da barra
     abrirApp();
@@ -368,6 +399,11 @@ async function carregar() {
   { const { data } = await sb.from('equipe').select('*').order('nome'); S.equipe = data || []; }
   const et = await run(sb.from('etiquetas').select('lead_id,texto').order('criado_em'));
   S.etiq = {}; for (const e of et) (S.etiq[e.lead_id] ||= []).push(e.texto);
+  if (ehGestor()) {   // metas do checklist (só o gestor edita; tolerante se o SQL ainda não foi rodado)
+    const a = await sb.from('checklist_metricas').select('*').order('ordem').order('id'), b = await sb.from('checklist_metas').select('*');
+    S.ck = { metricas: a.data || [], metas: b.data || [] };
+  }
+  atualizarAvisos();
 }
 const leadsFiltrados = () => {
   const q = semAcento(S.q).trim(), qd = q.replace(/\D/g, '');
@@ -391,17 +427,24 @@ async function abrirApp() {
     S.view = 'funil'; desenhar(); } },
     ...SITUACOES.map(([k, n]) => h('option', { value: k, selected: k === S.sit }, 'Negociações: ' + n)));
   const filtroResp = h('select', { class: 'filtro', id: 'filtroResp', hidden: true, 'aria-label': 'Filtrar por responsável', onchange: (e) => { S.resp = e.target.value; desenhar(); } });
-  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['metas', 'Metas'], ['config', 'Config']].filter(([id]) => podeVer(id)).map(([id, nome]) =>
+  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['checklist', 'Checklist'], ['metas', 'Metas'], ['config', 'Config']].filter(([id]) => podeVer(id)).map(([id, nome]) =>
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
     h('header', {}, h('h1', {}, 'Meu CRM'), nav, busca, situacao, filtro, filtroResp, h('div', { class: 'spacer' }),
-      h('button', { class: 'quem', id: 'chipQuem', type: 'button', title: S.eu.legado ? '' : 'Trocar minha foto', onclick: minhaFoto }, avatar(S.eu, 26), (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()]),
+      h('button', { class: 'sino', id: 'sino', type: 'button', title: 'Avisos', 'aria-label': 'Avisos', onclick: abrirSino }, '🔔', h('span', { class: 'sino-n', id: 'sinoN', hidden: true })),
+      h('button', { class: 'quem', id: 'chipQuem', type: 'button', title: S.eu.legado ? '' : 'Trocar minha foto', onclick: minhaFoto }, avatar(S.eu, 26), (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()], (S.eu.foto || S.eu.legado) ? null : h('span', { title: 'Clique para escolher a sua foto' }, '📷')),
       h('button', { class: 'btn', onclick: novoLead }, '+ Novo lead'),
       h('button', { class: 'btn ghost', onclick: () => sb.auth.signOut() }, 'Sair')),
     h('main', { id: 'view' }));
   await aplicarRegraFollowup(); await carregar(); desenhar();
+  atualizarAvisos(true); verificarPendencia();
+  if (!window.__avisosTimer) window.__avisosTimer = setInterval(() => atualizarAvisos(), 90000);   // confere novidades a cada 90 s
+  try {   // dica mostrada uma única vez por pessoa
+    const chave = 'crm_dica_foto_' + S.eu.id;
+    if (!S.eu.foto && !S.eu.legado && !localStorage.getItem(chave)) { localStorage.setItem(chave, '1'); setTimeout(() => toast('Dica: clique no seu nome, no canto superior direito, para escolher a sua foto. 📷'), 1200); }
+  } catch { /* sem armazenamento: ignora */ }
   // ao voltar para a aba depois de um tempo (ex.: virou o dia), roda a regra de novo
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#view')) aplicarRegraFollowup().then(recarregar); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#view')) { aplicarRegraFollowup().then(recarregar); atualizarAvisos(true); verificarPendencia(); } });
 }
 function montarFiltroResp() {
   const s = $('#filtroResp'); if (!s) return;
@@ -421,6 +464,7 @@ async function desenhar() {
     if (S.view === 'funil') v.replaceChildren(quadro());
     else if (S.view === 'hoje') v.replaceChildren(...telaHoje());
     else if (S.view === 'painel') v.replaceChildren(...(await telaPainel()).filter(Boolean));
+    else if (S.view === 'checklist') v.replaceChildren(...(await telaChecklist()));
     else if (S.view === 'metas') v.replaceChildren(...await telaMetas());
     else v.replaceChildren(...telaConfig());
   } catch (e) { console.error(e); }
@@ -861,6 +905,254 @@ async function telaMetas() {
   ].filter(Boolean);
 }
 
+// ---------- sino de avisos ----------
+// Os avisos NÃO são guardados: a página calcula com o que já existe (leads, anotações, histórico de etapas,
+// reuniões). O banco guarda só QUEM JÁ LEU cada aviso.
+const AV = { itens: [], lidos: new Set(), aba: null, aberto: false, ultima: 0 };
+const chaveLocal = () => 'crm_lidos_' + (S.eu?.id ?? 'x');
+const diaBR = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
+const horaBR = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+const nomeDe = (id) => (S.equipe || []).find((m) => m.id === id)?.nome;
+function haQuanto(iso) {
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (m < 1) return 'agora'; if (m < 60) return 'há ' + m + ' min';
+  const hh = Math.round(m / 60); if (hh < 24) return 'há ' + hh + ' h';
+  const d = Math.round(hh / 24); return 'há ' + d + (d === 1 ? ' dia' : ' dias');
+}
+const listaGeral = () => AV.itens.filter((i) => !i.soMinha);
+const listaMinhas = () => AV.itens.filter((i) => i.minha);
+const naoLidos = (lista) => lista.filter((i) => !AV.lidos.has(i.chave));
+
+async function atualizarAvisos(forcar = false) {
+  if (!S.eu) return;
+  if (!forcar && Date.now() - AV.ultima < 20000) return;   // não consulta o banco toda hora
+  AV.ultima = Date.now();
+  const desde = new Date(Date.now() - 3 * 864e5).toISOString(), meu = S.eu.id, hojeStr = hoje();
+  const porId = new Map(S.leads.map((l) => [l.id, l]));
+  const tenta = async (comColuna, semColuna) => { let r = await comColuna; if (r.error && semColuna) r = await semColuna; return r.error ? [] : (r.data || []); };
+  const qNotas = (c) => sb.from('anotacoes').select(c).eq('tipo', 'nota').gte('criado_em', desde).order('criado_em', { ascending: false }).limit(60);
+  const qHist = (c) => sb.from('historico_etapas').select(c).gte('entrou_em', desde).eq('pulada', false).order('entrou_em', { ascending: false }).limit(120);
+  const [notas, hist, etiquetas, lidosReg, pend] = await Promise.all([
+    tenta(qNotas('id,lead_id,texto,criado_em,autor_id'), qNotas('id,lead_id,texto,criado_em')),
+    tenta(qHist('id,lead_id,etapa,entrou_em,por_id'), qHist('id,lead_id,etapa,entrou_em')),
+    tenta(sb.from('etiquetas').select('id,lead_id,texto,criado_em').gte('criado_em', desde).order('criado_em', { ascending: false }).limit(40)),
+    sb.from('avisos_lidos').select('chave'),
+    sb.rpc('checklist_pendencia', { p_ignorar_visto: true }),
+  ]);
+  // quem já leu
+  if (!lidosReg.error) AV.lidos = new Set((lidosReg.data || []).map((x) => x.chave));
+  else { try { AV.lidos = new Set(JSON.parse(localStorage.getItem(chaveLocal()) || '[]')); } catch { /* ok */ } }
+
+  const itens = [], de = (l) => ({ lead: l.id, resp: l.responsavel_id, minha: l.responsavel_id === meu });
+  // ✉️ mensagens: lead novo, preencheu de novo, anotação de outra pessoa
+  for (const l of S.leads) if (l.criado_em >= desde) itens.push({ chave: 'lead:' + l.id, quando: l.criado_em, tipo: 'msg', icone: '✉️', texto: 'Novo lead: ' + l.nome + (l.origem ? ' (' + l.origem + ')' : ''), ...de(l) });
+  for (const e of etiquetas) { const l = porId.get(e.lead_id); if (l && /preencheu/i.test(e.texto)) itens.push({ chave: 'etq:' + e.id, quando: e.criado_em, tipo: 'msg', icone: '✉️', texto: l.nome + ' preencheu o formulário de novo', ...de(l) }); }
+  for (const n of notas) {
+    const l = porId.get(n.lead_id); if (!l || (n.autor_id && n.autor_id === meu)) continue;
+    const quem = nomeDe(n.autor_id) || 'Alguém';
+    itens.push({ chave: 'nota:' + n.id, quando: n.criado_em, tipo: 'msg', icone: '📝', texto: quem + ' anotou em ' + l.nome + ': “' + n.texto.slice(0, 70) + (n.texto.length > 70 ? '…' : '') + '”', ...de(l) });
+  }
+  // 🔀 cards que mudaram de etapa (não avisa do que você mesmo fez)
+  for (const e of hist) {
+    const l = porId.get(e.lead_id); if (!l || ['novo', 'quente'].includes(e.etapa) || (e.por_id && e.por_id === meu)) continue;
+    const por = nomeDe(e.por_id) ? ' (por ' + nomeDe(e.por_id) + ')' : '';
+    const texto = e.etapa === 'fechado' ? l.nome + ': negociação ganha' + por : e.etapa === 'perdido' ? l.nome + ': negociação perdida' + por : l.nome + ' foi para ' + (ROTULO[e.etapa] || e.etapa) + por;
+    itens.push({ chave: 'etapa:' + e.id, quando: e.entrou_em, tipo: 'etapa', icone: e.etapa === 'fechado' ? '🏆' : e.etapa === 'perdido' ? '💔' : '🔀', texto, ...de(l) });
+  }
+  // 📅 reuniões de hoje
+  for (const l of S.leads) if (l.reuniao_em && l.situacao === 'andamento' && diaBR(l.reuniao_em) === hojeStr)
+    itens.push({ chave: 'reuniao:' + l.id + ':' + hojeStr, quando: l.reuniao_em, tipo: 'reuniao', icone: '📅', texto: 'Reunião hoje às ' + horaBR(l.reuniao_em) + ' — ' + l.nome, ...de(l) });
+  // ✅ checklist de ontem pendente (só para mim)
+  if (pend.data) itens.push({ chave: 'check:' + pend.data.dia, quando: new Date().toISOString(), tipo: 'checklist', icone: '📋', texto: 'Checklist de ' + fmtDay(pend.data.dia).slice(0, 5) + ': você ainda não bateu a meta em ' + pend.data.itens.length + (pend.data.itens.length === 1 ? ' item' : ' itens'), minha: true, soMinha: true, dia: pend.data.dia });
+
+  itens.sort((a, b) => (a.tipo === 'reuniao') !== (b.tipo === 'reuniao') ? (a.tipo === 'reuniao' ? -1 : 1) : (a.tipo === 'reuniao' ? new Date(a.quando) - new Date(b.quando) : new Date(b.quando) - new Date(a.quando)));
+  AV.itens = itens.slice(0, 80);
+  atualizarBadgeSino(); if (AV.aberto) renderSino();
+}
+
+function atualizarBadgeSino() {
+  const b = $('#sinoN'); if (!b) return;
+  const visiveis = ehGerencia() ? AV.itens : listaMinhas(), n = naoLidos(visiveis).length;
+  b.hidden = n === 0; b.textContent = n > 99 ? '99+' : n;
+}
+async function marcarLidos(chaves) {
+  chaves = [...new Set(chaves)].filter((c) => !AV.lidos.has(c)); if (!chaves.length) return;
+  chaves.forEach((c) => AV.lidos.add(c));
+  const { error } = await sb.rpc('marcar_avisos_lidos', { p_chaves: chaves });
+  if (error) { try { localStorage.setItem(chaveLocal(), JSON.stringify([...AV.lidos].slice(-300))); } catch { /* ok */ } }
+  atualizarBadgeSino(); if (AV.aberto) renderSino();
+}
+function abrirItemAviso(i) {
+  marcarLidos([i.chave]); fecharSino();
+  if (i.tipo === 'checklist') { S.ckDia = i.dia; S.view = 'checklist'; desenhar(); }
+  else if (i.lead) abrirLead(i.lead);
+}
+function abrirSino() {
+  if (AV.aberto) return fecharSino();
+  AV.aberto = true; AV.aba = AV.aba && (AV.aba !== 'geral' || ehGerencia()) ? AV.aba : (ehGerencia() ? 'geral' : 'minhas');
+  renderSino(); atualizarAvisos(true);
+  setTimeout(() => document.addEventListener('click', foraDoSino), 0);
+}
+function foraDoSino(e) { if (!e.target.closest('#painelSino') && !e.target.closest('#sino')) fecharSino(); }
+function fecharSino() { AV.aberto = false; $('#painelSino')?.remove(); document.removeEventListener('click', foraDoSino); }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && AV.aberto) fecharSino(); });
+
+function renderSino() {
+  const lista = AV.aba === 'geral' ? listaGeral() : listaMinhas();
+  const aba = (id, rot, itens) => { const n = naoLidos(itens).length;
+    return h('button', { type: 'button', class: 'sino-aba' + (AV.aba === id ? ' on' : ''), onclick: () => { AV.aba = id; renderSino(); } }, rot, n ? h('span', { class: 'sino-n mini' }, n) : null); };
+  const painel = h('div', { id: 'painelSino', class: 'painel-sino', role: 'dialog', 'aria-label': 'Avisos' },
+    h('div', { class: 'sino-topo' }, h('b', {}, '🔔 Avisos'),
+      h('button', { class: 'btn sm ghost', type: 'button', onclick: () => marcarLidos(lista.map((i) => i.chave)) }, 'Marcar todas como lidas')),
+    h('div', { class: 'sino-abas' }, ehGerencia() ? aba('geral', 'Geral', listaGeral()) : null, aba('minhas', 'Minhas', listaMinhas())),
+    h('div', { class: 'sino-lista' }, lista.length ? lista.map((i) => {
+      const lido = AV.lidos.has(i.chave);
+      return h('button', { type: 'button', class: 'sino-item' + (lido ? '' : ' novo'), onclick: () => abrirItemAviso(i) },
+        h('span', { class: 'sino-ic' }, i.icone), h('span', { class: 'sino-tx' }, i.texto, h('small', {}, i.tipo === 'reuniao' ? 'hoje' : haQuanto(i.quando))), lido ? null : h('span', { class: 'sino-ponto', title: 'Não lido' }));
+    }) : h('div', { class: 'empty', style: 'padding:18px;text-align:center' }, 'Nada de novo por aqui. 🎉')));
+  $('#painelSino')?.remove(); document.body.append(painel);
+}
+
+// ---------- checklist diário ----------
+const DIAS_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+function diasRecentes() {
+  const [y, m, d] = hoje().split('-').map(Number), out = [];
+  for (let i = 0; i < 8; i++) out.push(new Date(Date.UTC(y, m - 1, d - i)).toISOString().slice(0, 10));
+  return out;
+}
+const rotuloDia = (iso, i) => i === 0 ? 'Hoje' : i === 1 ? 'Ontem' : DIAS_SEMANA[new Date(iso + 'T12:00:00Z').getUTCDay()] + ' ' + fmtDay(iso).slice(0, 5);
+
+async function telaChecklist() {
+  const dias = diasRecentes(); if (!S.ckDia || !dias.includes(S.ckDia)) S.ckDia = hoje();
+  const seletor = h('div', { class: 'chips', style: 'margin-bottom:12px' }, ...dias.map((d, i) =>
+    h('button', { type: 'button', class: 'btn sm' + (d === S.ckDia ? '' : ' ghost'), onclick: () => { S.ckDia = d; desenhar(); } }, rotuloDia(d, i))));
+  const { data: meu, error } = await sb.rpc('checklist_dia', { p_dia: S.ckDia });
+  if (error || !meu) return [h('div', { class: 'panel' }, h('h2', {}, '📋 Checklist diário'), 'O checklist ainda não está disponível. O SQL 25 já foi rodado no Supabase?')];
+
+  const itens = meu.itens || [], algumaMeta = itens.some((i) => i.meta > 0);
+  const linhas = itens.map((i) => {
+    const entrada = h('input', { type: 'number', min: '0', max: '100000', inputmode: 'numeric', placeholder: '0', value: i.valor ?? '', 'data-m': i.metrica_id, 'data-antes': i.valor ?? '', style: 'width:110px' });
+    const barra = h('i', { style: 'width:0' }), estado = h('small', {});
+    const pintar = () => {
+      const v = entrada.value === '' ? null : Number(entrada.value);
+      barra.style.width = i.meta > 0 && v ? Math.min(100, v / i.meta * 100) + '%' : '0';
+      estado.textContent = i.meta > 0 ? (v !== null && v >= i.meta ? '✅ meta batida' : v === null ? 'não lançado' : 'faltam ' + (i.meta - v)) : 'sem meta';
+      estado.className = i.meta > 0 && v !== null && v >= i.meta ? 'ok' : '';
+    };
+    entrada.addEventListener('input', pintar); pintar();
+    return h('div', { class: 'ck-linha' }, h('div', { class: 'ck-nome' }, h('b', {}, i.nome), h('small', {}, i.meta > 0 ? 'Meta: ' + numBR(i.meta) : 'Sem meta definida')),
+      entrada, h('div', { class: 'ck-prog' }, h('div', { class: 'm-trilho' + (i.meta > 0 ? '' : ' aberta') }, barra), estado));
+  });
+  const entradas = () => [...document.querySelectorAll('.ck-linha input')];
+  const salvar = async () => {
+    const mudou = entradas().filter((e) => e.value !== '' && e.value !== e.dataset.antes);
+    if (!mudou.length) return toast('Nada novo para salvar.');
+    for (const e of mudou) {
+      const { error: er } = await sb.rpc('checklist_lancar', { p_dia: S.ckDia, p_metrica: Number(e.dataset.m), p_valor: Math.max(0, Math.round(Number(e.value))) });
+      if (er) { toast(er.message || 'Não foi possível salvar.'); return; }
+    }
+    toast('Números salvos! ✅'); atualizarAvisos(true); desenhar();
+  };
+  const painelMeu = h('div', { class: 'panel' }, h('h2', {}, '📋 Meus números de ' + fmtDay(S.ckDia)),
+    !meu.util ? h('p', { class: 'empty' }, 'Esse dia não tem meta (fim de semana ou dia fora do combinado). Dá para lançar mesmo assim.') : null,
+    !algumaMeta ? h('p', { class: 'empty' }, 'Ainda não há metas definidas. O gestor define em Config → Checklist diário.') : null,
+    itens.length ? linhas : h('div', { class: 'empty' }, 'Nenhuma métrica cadastrada ainda.'),
+    h('div', { class: 'actions', style: 'margin-top:10px' }, h('button', { class: 'btn', type: 'button', onclick: salvar }, 'Salvar números')));
+
+  const blocos = [seletor, painelMeu];
+  if (ehGerencia()) {
+    const { data: time } = await sb.rpc('checklist_time', { p_dia: S.ckDia });
+    const nomes = (time?.[0]?.itens || []).map((i) => i.nome);
+    blocos.push(h('div', { class: 'panel' }, h('h2', {}, '👥 Time em ' + fmtDay(S.ckDia)),
+      (time || []).length ? h('div', { style: 'overflow-x:auto' }, h('table', { class: 'ck-tab' },
+        h('thead', {}, h('tr', {}, h('th', {}, 'Pessoa'), ...nomes.map((n) => h('th', {}, n)))),
+        h('tbody', {}, ...time.map((p) => h('tr', {}, h('td', {}, h('span', { class: 'linha' }, avatar(p, 24), p.nome)),
+          ...p.itens.map((i) => { const v = i.valor, ok = i.meta > 0 && v !== null && v >= i.meta;
+            return h('td', { class: i.meta > 0 ? (ok ? 'ck-ok' : 'ck-falta') : '' }, v === null ? '—' : String(v), i.meta > 0 ? h('small', {}, ' / ' + i.meta + (ok ? ' ✅' : ' ⚠️')) : null); }))))))
+        : h('div', { class: 'empty' }, 'Nenhuma pessoa com acesso ainda.')));
+  }
+  return blocos;
+}
+
+// Janela curta, com "Ok" obrigatório, para quem não bateu a meta do último dia útil
+let avisoChecklistAberto = false;
+async function verificarPendencia() {
+  if (avisoChecklistAberto || dlg.open) return;
+  const { data, error } = await sb.rpc('checklist_pendencia');
+  if (error || !data) return;
+  mostrarAvisoChecklist(data);
+}
+function mostrarAvisoChecklist(p) {
+  avisoChecklistAberto = true; let reconhecido = false;
+  // Se a janela for fechada sem o Ok (por qualquer meio), ela volta. Observa o atributo "open", que funciona em todo navegador.
+  const vigia = new MutationObserver(() => {
+    if (!reconhecido && !dlg.open) setTimeout(() => { if (!reconhecido) { vigia.disconnect(); mostrarAvisoChecklist(p); } }, 0);
+  });
+  vigia.observe(dlg, { attributes: true, attributeFilter: ['open'] });
+  dlg.onclose = null;
+  dlg.oncancel = (e) => e.preventDefault();                                                    // Esc não fecha
+  openDialog(h('h2', {}, '📋 Checklist de ' + fmtDay(p.dia)),
+    h('p', {}, 'Você ainda não bateu a meta deste dia:'),
+    ...p.itens.map((i) => h('div', { class: 'fu' }, h('div', { class: 'grow' }, h('b', {}, i.nome)), h('span', {}, h('b', {}, i.valor), ' de ' + i.meta))),
+    h('small', { style: 'color:var(--muted)' }, 'Se você esqueceu de lançar os números, é só atualizar no checklist.'),
+    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
+      reconhecido = true; avisoChecklistAberto = false; vigia.disconnect();
+      await sb.rpc('checklist_ver_aviso', { p_dia: p.dia });
+      dlg.oncancel = null; dlg.onclose = null; closeDialog();
+      S.ckDia = p.dia; S.view = 'checklist'; desenhar(); atualizarAvisos(true);
+    } }, 'Ok, ir ao checklist')));
+}
+
+// ---------- config: metas do checklist ----------
+function painelChecklistConfig() {
+  const ck = S.ck || { metricas: [], metas: [] }, pessoas = (S.equipe || []).filter((m) => m.ativo && m.auth_user_id);
+  const dias = Array.isArray(S.cfg.checklist_dias) ? S.cfg.checklist_dias : [1, 2, 3, 4, 5];
+  const chkDias = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((n, i) =>
+    h('label', { style: 'flex-direction:row;align-items:center;gap:6px' }, h('input', { type: 'checkbox', style: 'width:auto', 'data-d': String(i + 1), checked: dias.includes(i + 1) }), n));
+  const linhasM = ck.metricas.map((m) => ({ id: m.id,
+    nome: h('input', { value: m.nome, maxlength: 60 }), meta: h('input', { type: 'number', min: '0', value: m.meta_padrao || '', placeholder: 'sem meta' }),
+    ativo: h('input', { type: 'checkbox', style: 'width:auto', checked: m.ativo }) }));
+  const ativas = ck.metricas.filter((m) => m.ativo);
+  const celulas = [];
+  const grade = pessoas.map((p) => h('tr', {}, h('td', {}, h('span', { class: 'linha' }, avatar(p, 24), p.nome)), ...ativas.map((m) => {
+    const atual = ck.metas.find((x) => x.equipe_id === p.id && x.metrica_id === m.id);
+    const entrada = h('input', { type: 'number', min: '0', value: atual ? atual.meta : '', placeholder: 'padrão ' + (m.meta_padrao || '—'), style: 'width:110px' });
+    celulas.push({ eq: p.id, met: m.id, entrada, existia: !!atual });
+    return h('td', {}, entrada);
+  })));
+  const salvar = async () => {
+    for (const r of linhasM) {
+      const { error } = await sb.from('checklist_metricas').update({ nome: r.nome.value.trim().slice(0, 60) || 'Métrica', meta_padrao: Math.max(0, Math.round(Number(r.meta.value) || 0)), ativo: r.ativo.checked }).eq('id', r.id);
+      if (error) return toast('Não foi possível salvar as métricas. O SQL 25 já foi rodado?');
+    }
+    for (const c of celulas) {
+      const v = c.entrada.value.trim();
+      if (v === '') { if (c.existia) await sb.from('checklist_metas').delete().eq('equipe_id', c.eq).eq('metrica_id', c.met); }
+      else await sb.from('checklist_metas').upsert({ equipe_id: c.eq, metrica_id: c.met, meta: Math.max(0, Math.round(Number(v) || 0)) });
+    }
+    const sel = chkDias.map((l) => l.querySelector('input')).filter((i) => i.checked).map((i) => Number(i.dataset.d));
+    await run(sb.from('configuracoes').upsert({ chave: 'checklist_dias', valor: sel }), 'Não foi possível salvar os dias.');
+    await carregar(); toast('Checklist salvo!'); desenhar();
+  };
+  const novaMetrica = async () => {
+    const r = await ask('Nova métrica do checklist', [{ name: 'n', label: 'Nome (ex.: Ligações feitas)', required: true }, { name: 'm', label: 'Meta diária padrão (0 = sem meta)', type: 'number', min: '0' }]);
+    if (!r) return;
+    await run(sb.from('checklist_metricas').insert({ nome: r.n.trim().slice(0, 60), meta_padrao: Math.max(0, Math.round(Number(r.m) || 0)), ordem: ck.metricas.length + 1 }), 'Não foi possível criar a métrica.');
+    await carregar(); desenhar();
+  };
+  return h('div', { class: 'panel' }, h('h2', {}, '📋 Checklist diário do time'),
+    h('p', { class: 'empty' }, 'Cada pessoa lança os números do dia. Quem não bater a meta do último dia útil recebe um aviso aqui dentro, com um "Ok" que leva ao checklist. Metas em 0 ficam "sem meta" e não geram aviso.'),
+    h('b', {}, 'Métricas e meta padrão'),
+    linhasM.length ? linhasM.map((r) => h('div', { class: 'fu' }, h('div', { class: 'grow' }, r.nome), h('label', { style: 'width:150px' }, 'Meta por dia', r.meta), h('label', { style: 'flex-direction:row;align-items:center;gap:6px' }, r.ativo, 'ativa')))
+      : h('div', { class: 'empty' }, 'Nenhuma métrica ainda.'),
+    h('div', { class: 'actions', style: 'margin:8px 0 14px' }, h('button', { class: 'btn sm ghost', type: 'button', onclick: novaMetrica }, '+ Nova métrica')),
+    h('b', {}, 'Meta de cada pessoa'), h('p', { class: 'empty', style: 'margin:2px 0 6px' }, 'Deixe em branco para usar a meta padrão.'),
+    pessoas.length && ativas.length ? h('div', { style: 'overflow-x:auto' }, h('table', { class: 'ck-tab' }, h('thead', {}, h('tr', {}, h('th', {}, 'Pessoa'), ...ativas.map((m) => h('th', {}, m.nome)))), h('tbody', {}, ...grade)))
+      : h('div', { class: 'empty' }, 'Quando houver pessoas com acesso e métricas ativas, as metas individuais aparecem aqui.'),
+    h('b', { style: 'display:block;margin-top:14px' }, 'Dias com meta'), h('div', { class: 'chips', style: 'gap:12px;margin:6px 0' }, ...chkDias),
+    h('div', { class: 'actions', style: 'margin-top:10px' }, h('button', { class: 'btn', type: 'button', onclick: salvar }, 'Salvar checklist')));
+}
+
 // ---------- foto dos usuários ----------
 // Avatar: a foto da pessoa, ou um círculo com a inicial do nome
 function avatar(pessoa, px = 28) {
@@ -931,7 +1223,7 @@ function minhaFoto() {
 }
 function atualizarChip() {
   const c = $('#chipQuem'); if (!c || !S.eu) return;
-  c.replaceChildren(avatar(S.eu, 26), (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()]);
+  c.replaceChildren(avatar(S.eu, 26), (S.eu.nome ? S.eu.nome + ' • ' : '') + ROTULO_PAPEL[papel()], S.eu.foto ? null : h('span', { title: 'Clique para escolher a sua foto' }, '📷'));
 }
 
 // ---------- equipe: convites (a função gerenciar-equipe, no Supabase, cria o login) ----------
@@ -1080,6 +1372,7 @@ function telaConfig() {
       h('label', { style: 'flex-direction:row;align-items:center;gap:8px;margin-top:8px', for: 'enviarEmail' }, enviarEmail, 'Tentar enviar também por e-mail (precisa de e-mail configurado no Supabase; o link para o WhatsApp funciona sempre)'),
       h('div', { class: 'actions', style: 'margin-top:10px' }, h('button', { class: 'btn', type: 'button', onclick: convidar }, '✉️ Criar convite')),
       h('label', { style: 'margin-top:14px;max-width:340px' }, 'Responsável padrão dos leads novos', padrao)),
+    painelChecklistConfig(),
     h('div', { class: 'panel' }, h('h2', {}, 'Mensagens de follow-up (WhatsApp)'),
       h('p', { class: 'empty' }, 'Use {nome} para o primeiro nome do lead. Dias: 1º = 1 dia após a reunião, 2º = +3, 3º = +1, 4º = +2.'), tpl),
     h('div', { class: 'actions' },
@@ -1098,7 +1391,7 @@ function exportarCsv() {
 
 // ---------- início ----------
 sb.auth.onAuthStateChange((evento, sessao) => {
-  if (evento === 'SIGNED_OUT' || !sessao) { criandoSenha = false; S.leads = []; S.cfg = {}; S.proximo = {}; S.eu = null; closeDialog(); telaLogin(); return; }
+  if (evento === 'SIGNED_OUT' || !sessao) { criandoSenha = false; S.leads = []; S.cfg = {}; S.proximo = {}; S.eu = null; AV.itens = []; fecharSino(); closeDialog(); telaLogin(); return; }
   if (criandoSenha) { telaCriarSenha(); return; }  // chegou por um convite: primeiro cria a senha
   if (evento === 'SIGNED_IN' || evento === 'INITIAL_SESSION') abrirApp();
 });
