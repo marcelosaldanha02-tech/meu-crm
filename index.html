@@ -623,11 +623,20 @@ async function abrirLead(id) {
     return extra;
   };
   // Salva o que está digitado antes de qualquer ação que recarrega o card (nada se perde)
-  const guardar = () => run(sb.from('leads').update({
-    nome: nome.value.trim().slice(0, 200) || 'Sem nome', telefone: tel.value.slice(0, 20), email: mail.value.trim().slice(0, 254),
-    valor_venda: Number(valor.value) || 0, observacao: obs.value.slice(0, 5000),
-    ...camposNovos(),
-  }).eq('id', id), 'Não foi possível salvar.');
+  // Grava SÓ o que esta pessoa alterou desde que abriu o card. Assim, se outra pessoa mudou outro campo no meio tempo,
+  // a alteração dela não é desfeita por uma gravação com dados velhos.
+  const guardar = () => {
+    const novo = {
+      nome: nome.value.trim().slice(0, 200) || 'Sem nome', telefone: tel.value.slice(0, 20), email: mail.value.trim().slice(0, 254),
+      valor_venda: Number(valor.value) || 0, observacao: obs.value.slice(0, 5000),
+    }, antes = { nome: lead.nome, telefone: lead.telefone, email: lead.email, valor_venda: Number(lead.valor_venda) || 0, observacao: lead.observacao || '' };
+    const upd = {};
+    for (const k of Object.keys(novo)) if (novo[k] !== antes[k]) upd[k] = novo[k];
+    Object.assign(upd, camposNovos());
+    if (!Object.keys(upd).length) return Promise.resolve();
+    return run(sb.from('leads').update(upd).eq('id', id), 'Não foi possível salvar.')
+      .then((r) => { Object.assign(lead, novo); return r; });   // gravado: passa a ser a base da próxima comparação
+  };
   const acao = (fn) => async () => { await guardar(); await fn(); abrirLead(id); };
 
   // --- tags
