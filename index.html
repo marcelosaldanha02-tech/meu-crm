@@ -36,6 +36,8 @@
   .col { background:var(--card); border:1px solid var(--line); border-top:5px solid var(--c, var(--line)); border-radius:14px; min-height:160px; scroll-snap-align:start; box-shadow:0 2px 10px rgba(40,60,120,.07); }
   .col.over { outline:2px dashed var(--brand); }
   .col h3 { margin:0; padding:10px 12px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--c, var(--muted)); background:var(--c-bg, transparent); border-radius:9px 9px 0 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .col-total { padding:5px 12px 6px; font-size:13px; font-weight:700; color:var(--text); background:var(--c-bg, transparent); border-bottom:1px solid var(--line); }
+  .col-total.zero { color:var(--muted); font-weight:500; }
   .col h3 .contagem { background:#fff; color:var(--c, var(--muted)); border-radius:999px; min-width:24px; padding:1px 8px; text-align:center; font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,.08); }
   .col .cards { padding:8px; display:flex; flex-direction:column; gap:8px; }
   .lead { background:#fff; border:1px solid var(--line); border-left:5px solid var(--c, var(--line)); border-radius:12px; padding:10px 12px; cursor:pointer; box-shadow:0 1px 4px rgba(40,60,120,.10); transition:transform .15s ease, box-shadow .15s ease; }
@@ -45,6 +47,7 @@
   @media (prefers-reduced-motion: reduce) { .lead { transition:none; } .lead:hover { transform:none; } }
   .lead b { display:block; overflow-wrap:anywhere; } .lead small { color:var(--muted); overflow-wrap:anywhere; }
   .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; background:var(--line); color:var(--muted); margin-top:4px; }
+  .tag.val { background:#eef2ff; color:#3f4bb5; border:1px solid #d6dcff; font-weight:600; }
   .tag.late { background:var(--bad); color:#fff; } .tag.today { background:var(--warn); color:#fff; } .tag.won { background:var(--ok); color:#fff; }
   /* Negociação ganha = verde, perdida = vermelho (card do quadro, listas e janela do card) */
   .lead.ganha { background:rgba(22,163,74,.16); border-color:var(--ok); border-left-width:5px; }
@@ -499,12 +502,15 @@ function passaSituacao(l) {
   return S.sit === 'todas' || (S.sit === 'andamento' && l.situacao === 'andamento')
     || (S.sit === 'ganhas' && l.situacao === 'ganha') || (S.sit === 'perdidas' && l.situacao === 'perdida');
 }
+const totalCol = (itens) => itens.reduce((s, l) => s + Number(l.valor_venda || 0), 0);
 function quadro() {
   const lista = leadsFiltrados().filter(passaSituacao), t = hoje();
   const board = h('div', { class: 'board', style: `--cols:${ETAPAS.length}` }, ...ETAPAS.map(([id, nome]) => {
     const itens = lista.filter((l) => l.etapa === id);
     const col = h('div', { class: 'col', 'data-etapa': id, style: `--c:${COR[id][0]};--c-bg:${COR[id][1]}` },
       h('h3', {}, h('span', {}, COR[id][2] + ' ' + nome), h('span', { class: 'contagem' }, itens.length)),
+      // soma dos valores dos cards que estão visíveis nesta coluna (acompanha o filtro de negociações)
+      h('div', { class: 'col-total' + (totalCol(itens) > 0 ? '' : ' zero'), title: 'Soma dos valores das negociações desta coluna' }, brl(totalCol(itens))),
       h('div', { class: 'cards' }, itens.length ? itens.map((l) => cartao(l, t)) : h('div', { class: 'empty' }, '—')));
     col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('over'); });
     col.addEventListener('dragleave', () => col.classList.remove('over'));
@@ -528,13 +534,16 @@ function cartao(l, t) {
   else if (l.situacao === 'perdida') tag = h('span', { class: 'tag lost' }, '💔 ' + (l.motivo_perda || 'Perdida'));
   else if (fu) tag = h('span', { class: 'tag ' + (fu.data_prevista < t ? 'late' : fu.data_prevista === t ? 'today' : '') }, `Follow-up ${fu.numero} • ${fmtDay(fu.data_prevista).slice(0, 5)}`);
   else if (l.etapa === 'agendada' && l.reuniao_em) tag = h('span', { class: 'tag' }, fmtDT(l.reuniao_em));
+  // valor da negociação como etiqueta (a ganha já mostra o valor na etiqueta verde)
+  const valorTag = (Number(l.valor_venda) > 0 && l.situacao !== 'ganha')
+    ? h('span', { class: 'tag val', title: l.situacao === 'perdida' ? 'Valor da negociação perdida' : 'Valor em aberto: só entra no faturamento quando a negociação é ganha' }, '💰 ' + brl(l.valor_venda)) : null;
   const temp = TEMP[l.temperatura], rep = (S.etiq[l.id] || []).length, quem = (S.equipe || []).find((m) => m.id === l.responsavel_id);
   const acoesFu = (l.etapa === 'followup' && fu && l.situacao === 'andamento') ? cartaoAcoesFollowup(l, fu) : null;
   const el = h('div', { class: 'lead' + (l.situacao === 'ganha' ? ' ganha' : l.situacao === 'perdida' ? ' perdida' : ''), draggable: 'true', onclick: () => abrirLead(l.id) },
     h('div', { class: 'topo' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, (l.nome.trim()[0] || '?').toUpperCase()),
       h('div', { style: 'min-width:0' }, h('b', {}, l.nome), h('small', {}, l.telefone ? '+' + l.telefone : l.email))),
-    (temp || rep || tag || quem) ? h('div', { class: 'chips', style: 'margin-top:4px' },
-      temp ? h('span', { class: 'tag ' + temp[1] }, temp[0]) : null,
+    (temp || rep || tag || quem || valorTag) ? h('div', { class: 'chips', style: 'margin-top:4px' },
+      valorTag, temp ? h('span', { class: 'tag ' + temp[1] }, temp[0]) : null,
       rep ? h('span', { class: 'tag rep', title: S.etiq[l.id].join('\n') }, `↻ Preencheu de novo${rep > 1 ? ' ×' + rep : ''}`) : null,
       tag, quem ? h('span', { class: 'tag resp', style: 'display:inline-flex;align-items:center;gap:4px' }, quem.foto ? avatar(quem, 16) : '👤', quem.nome) : null) : null,
     acoesFu);
