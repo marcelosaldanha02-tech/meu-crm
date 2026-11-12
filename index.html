@@ -107,6 +107,7 @@
   .ck-linha { display:grid; grid-template-columns:minmax(140px,1.2fr) 120px 1.4fr; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
   .ck-nome small, .ck-prog small { display:block; color:var(--muted); } .ck-prog small.ok { color:#15803d; font-weight:700; }
   .ck-tab { border-collapse:collapse; width:100%; } .ck-tab th, .ck-tab td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); font-size:13px; white-space:nowrap; } .ck-tab th { color:var(--muted); font-weight:600; }
+  .ct-tab td { white-space:normal; vertical-align:top; } .ct-tab td small { color:var(--muted); }
   .ck-ok { color:#15803d; font-weight:600; } .ck-falta { color:#b45309; font-weight:600; } .ck-tab small { color:var(--muted); font-weight:400; display:inline; }
   @media (max-width:700px) { .ck-linha { grid-template-columns:1fr; } .painel-sino { top:8px; right:8px; max-height:80vh; } }
   .quem { display:inline-flex; align-items:center; gap:8px; background:none; border:0; color:var(--muted); font:inherit; font-size:13px; white-space:nowrap; cursor:pointer; padding:3px 8px 3px 4px; border-radius:999px; }
@@ -237,6 +238,8 @@ function h(tag, props = {}, ...kids) {
 const brl = (n) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const pct = (n) => Math.round((Number(n) || 0) * 100) + '%';
 const fmtDT = (iso) => iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' }) : '';
+const fmtTel = (t) => { const d = String(t ?? '').replace(/\D/g, ''); const n = d.startsWith('55') && d.length > 11 ? d.slice(2) : d;
+  return n.length === 11 ? '(' + n.slice(0, 2) + ') ' + n.slice(2, 7) + '-' + n.slice(7) : n.length === 10 ? '(' + n.slice(0, 2) + ') ' + n.slice(2, 6) + '-' + n.slice(6) : (t || ''); };
 const fmtDay = (d) => d ? d.split('-').reverse().join('/') : '';
 const hoje = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ });
 const toLocalInput = (iso) => iso ? new Date(iso).toLocaleString('sv-SE', { timeZone: TZ }).replace(' ', 'T').slice(0, 16) : '';
@@ -323,7 +326,7 @@ const ROTULO_PAPEL = { gestor: 'Gestor', gerente: 'Gerente', vendedor: 'Vendedor
 const papel = () => S.eu?.papel || 'gestor';
 const ehGestor = () => papel() === 'gestor';
 const ehGerencia = () => papel() !== 'vendedor';   // gestor ou gerente
-const podeVer = (tela) => ({ funil: true, hoje: true, painel: true, checklist: true, metas: ehGerencia(), config: ehGestor() })[tela] ?? false;
+const podeVer = (tela) => ({ funil: true, hoje: true, contatos: true, painel: true, checklist: true, metas: ehGerencia(), config: ehGestor() })[tela] ?? false;
 
 // ---------- login ----------
 function telaLogin(msg = '') {
@@ -426,7 +429,7 @@ async function abrirApp() {
   { const { data: pf, error: ep } = await sb.rpc('meu_perfil'); S.eu = (!ep && pf) ? pf : { papel: 'gestor', nome: '', legado: true }; }
   if (!podeVer(S.view)) S.view = 'funil';
   const busca = h('input', { class: 'search', type: 'search', placeholder: 'Buscar nome, e-mail ou telefone', 'aria-label': 'Buscar',
-    oninput: (e) => { S.q = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } });
+    oninput: (e) => { S.q = e.target.value; if (S.view === 'contatos') pintarContatos(); else if (['funil', 'hoje'].includes(S.view)) desenhar(); } });
   const filtro = h('select', { class: 'filtro', 'aria-label': 'Filtrar por temperatura', onchange: (e) => { S.temp = e.target.value; if (['funil', 'hoje'].includes(S.view)) desenhar(); } },
     h('option', { value: '' }, 'Todas as temperaturas'), h('option', { value: 'quente' }, '🔥 Só quentes'), h('option', { value: 'morno' }, 'Só mornos'), h('option', { value: 'frio' }, '🧊 Só frios'));
   const situacao = h('select', { class: 'filtro', 'aria-label': 'Filtrar negociações', onchange: (e) => {
@@ -434,7 +437,7 @@ async function abrirApp() {
     S.view = 'funil'; desenhar(); } },
     ...SITUACOES.map(([k, n]) => h('option', { value: k, selected: k === S.sit }, 'Negociações: ' + n)));
   const filtroResp = h('select', { class: 'filtro', id: 'filtroResp', hidden: true, 'aria-label': 'Filtrar por responsável', onchange: (e) => { S.resp = e.target.value; desenhar(); } });
-  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['painel', 'Painel'], ['checklist', 'Checklist'], ['metas', 'Metas'], ['config', 'Config']].filter(([id]) => podeVer(id)).map(([id, nome]) =>
+  const nav = h('nav', {}, ...[['funil', 'Funil'], ['hoje', 'Hoje'], ['contatos', 'Contatos'], ['painel', 'Painel'], ['checklist', 'Checklist'], ['metas', 'Metas'], ['config', 'Config']].filter(([id]) => podeVer(id)).map(([id, nome]) =>
     h('button', { 'data-v': id, onclick: () => { S.view = id; desenhar(); } }, nome, id === 'hoje' ? h('span', { class: 'badge', id: 'badge' }) : null)));
   app.replaceChildren(
     h('header', {}, h('h1', {}, h('img', { src: LOGO_LOGIN, alt: 'Marcelo Saldanha', class: 'topo-logo' })), nav, busca, situacao, filtro, filtroResp, h('div', { class: 'spacer' }),
@@ -470,6 +473,7 @@ async function desenhar() {
   try {
     if (S.view === 'funil') v.replaceChildren(quadro());
     else if (S.view === 'hoje') v.replaceChildren(...telaHoje());
+    else if (S.view === 'contatos') v.replaceChildren(...(await telaContatos()));
     else if (S.view === 'painel') v.replaceChildren(...(await telaPainel()).filter(Boolean));
     else if (S.view === 'checklist') v.replaceChildren(...(await telaChecklist()));
     else if (S.view === 'metas') v.replaceChildren(...await telaMetas());
@@ -589,13 +593,14 @@ async function novoLead() {
 async function abrirLead(id) {
   const [lead] = await run(sb.from('leads').select('*').eq('id', id));
   if (!lead) return;
-  const [hist, notas, fus, etiq, envios, ativ] = await Promise.all([
+  const [hist, notas, fus, etiq, envios, ativ, outrosContatos] = await Promise.all([
     run(sb.from('historico_etapas').select('*').eq('lead_id', id).order('entrou_em')),
     run(sb.from('anotacoes').select('*').eq('lead_id', id).order('criado_em', { ascending: false })),
     run(sb.from('followups').select('*').eq('lead_id', id).order('numero')),
     run(sb.from('etiquetas').select('*').eq('lead_id', id).order('criado_em')),
     run(sb.from('respostas_formulario').select('*').eq('lead_id', id).order('enviado_em')),
     run(sb.from('atividades').select('*').eq('lead_id', id).order('vence_em')),
+    sb.from('contatos').select('*').eq('lead_id', id).eq('principal', false).order('criado_em').then((r) => r.error ? [] : (r.data || [])),   // tolerante: se o SQL 31 ainda não foi rodado
   ]);
   const campo = (rot, el) => h('label', {}, rot, el);
   const secao = (titulo, ...filhos) => h('section', { class: 'sec' }, h('h3', {}, titulo), ...filhos);
@@ -703,6 +708,23 @@ async function abrirLead(id) {
     celebrar();
   });
 
+  // --- outros contatos da negociação
+  const cNome = h('input', { placeholder: 'Nome', maxlength: 200 }), cCargo = h('input', { placeholder: 'Cargo (opcional)', maxlength: 100 });
+  const cTel = h('input', { placeholder: 'Telefone', inputmode: 'tel', maxlength: 20 }), cMail = h('input', { placeholder: 'E-mail', type: 'email', maxlength: 254 });
+  const addContato = acao(async () => {
+    if (!cNome.value.trim()) { toast('Informe o nome do contato.'); throw new Error('vazio'); }
+    await run(sb.from('contatos').insert({ lead_id: id, nome: cNome.value.trim().slice(0, 200), cargo: cCargo.value.trim().slice(0, 100), telefone: cTel.value.slice(0, 20), email: cMail.value.trim().slice(0, 254) }), 'Não foi possível adicionar o contato.');
+    toast('Contato adicionado.');
+  });
+  const linhasContatos = outrosContatos.map((c) => h('div', { class: 'fu' },
+    h('div', { class: 'grow' }, h('b', {}, c.nome), c.cargo ? h('small', {}, ' · ' + c.cargo) : null,
+      (c.telefone || c.email) ? h('div', {}, h('small', {}, [c.telefone ? fmtTel(c.telefone) : '', c.email].filter(Boolean).join(' · '))) : null),
+    c.telefone ? h('a', { class: 'btn sm ghost', href: waLink(c.telefone), target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no WhatsApp' }, 'WhatsApp') : null,
+    h('button', { class: 'btn sm ghost', type: 'button', title: 'Remover contato', onclick: acao(async () => {
+      if (!confirm('Remover este contato?')) throw new Error('cancelado');
+      await run(sb.from('contatos').delete().eq('id', c.id), 'Não foi possível remover o contato.');
+    }) }, '×')));
+
   // --- respostas do formulário
   const perfil = envios.length
     ? envios.map((env, i) => h('div', { style: 'margin-top:6px' },
@@ -739,6 +761,11 @@ async function abrirLead(id) {
           campo('E-mail', mail),
           h('label', {}, 'Tags', chips),
           campo('Observação', obs)),
+        secao('Outros contatos desta negociação',
+          linhasContatos.length ? linhasContatos : h('div', { class: 'empty' }, 'Nenhum outro contato. A pessoa acima já está salva em Contatos.'),
+          h('div', { class: 'grid2' }, campo('Nome', cNome), campo('Cargo', cCargo)),
+          h('div', { class: 'grid2' }, campo('Telefone', cTel), campo('E-mail', cMail)),
+          h('div', { class: 'actions' }, h('button', { class: 'btn sm', type: 'button', onclick: addContato }, '+ Adicionar contato'))),
         secao('Anotações', nota,
           h('div', { class: 'actions' }, h('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
             if (!nota.value.trim()) return;
@@ -781,6 +808,46 @@ async function abrirLead(id) {
 }
 
 // ---------- hoje ----------
+// ---------- contatos salvos ----------
+// Lista todo mundo que está em alguma negociação: a pessoa principal de cada card (criada sozinha)
+// e as pessoas adicionadas dentro do card. A busca do topo filtra a lista.
+async function telaContatos() {
+  S.ctList = await run(sb.from('contatos').select('*').order('nome').limit(5000), 'Não foi possível carregar os contatos.');
+  const caixa = h('div', { id: 'ctLista' });
+  const painel = h('div', { class: 'panel' },
+    h('h2', {}, 'Contatos salvos'),
+    h('p', { class: 'empty' }, 'Toda pessoa cadastrada em uma negociação aparece aqui. Para adicionar outra pessoa (sócio, financeiro...), abra o card e use "Outros contatos desta negociação". Use a busca do topo para filtrar.'),
+    caixa);
+  pintarContatos(caixa);
+  return [painel];
+}
+function pintarContatos(caixa = $('#ctLista')) {
+  if (!caixa) return;
+  const porId = new Map(S.leads.map((l) => [l.id, l])), q = semAcento(S.q).trim(), dig = String(S.q || '').replace(/\D/g, '');
+  const itens = (S.ctList || []).filter((c) => {
+    if (!q) return true;
+    const l = porId.get(c.lead_id);
+    return [c.nome, c.cargo, c.email, l && l.nome].some((x) => semAcento(x).includes(q)) || (dig.length >= 3 && String(c.telefone).includes(dig));
+  }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  if (!itens.length) { caixa.replaceChildren(h('div', { class: 'empty' }, q ? 'Nenhum contato encontrado para essa busca.' : 'Ainda não há contatos. Eles aparecem aqui assim que você cadastra uma negociação.')); return; }
+  const linhas = itens.map((c) => {
+    const l = porId.get(c.lead_id);
+    return h('tr', {},
+      h('td', {}, h('b', {}, c.nome), c.cargo ? h('small', {}, ' · ' + c.cargo) : null),
+      h('td', {}, c.telefone ? h('span', {}, fmtTel(c.telefone), ' ', h('a', { class: 'btn sm ghost', href: waLink(c.telefone), target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no WhatsApp' }, 'WhatsApp')) : h('small', {}, '—')),
+      h('td', {}, c.email || h('small', {}, '—')),
+      h('td', {}, l ? h('button', { class: 'btn sm ghost', type: 'button', onclick: () => abrirLead(l.id) }, l.nome) : h('small', {}, '—'), ' ',
+        l ? h('span', { class: 'tag' }, ROTULO[l.etapa]) : null,
+        l && l.situacao !== 'andamento' ? h('span', { class: 'tag ' + (l.situacao === 'ganha' ? 'won' : 'lost') }, l.situacao === 'ganha' ? 'ganha' : 'perdida') : null),
+      h('td', {}, h('small', {}, c.principal ? 'Principal' : 'Adicionado')));
+  });
+  caixa.replaceChildren(
+    h('small', { style: 'color:var(--muted)' }, itens.length + (itens.length === 1 ? ' contato' : ' contatos')),
+    h('div', { style: 'overflow-x:auto;margin-top:6px' }, h('table', { class: 'ck-tab ct-tab' },
+      h('thead', {}, h('tr', {}, ...['Contato', 'Telefone', 'E-mail', 'Negociação', 'Tipo'].map((t) => h('th', {}, t)))),
+      h('tbody', {}, ...linhas))));
+}
+
 function telaHoje() {
   const t = hoje(), msgs = S.cfg.mensagens || [], porId = Object.fromEntries(S.leads.map((l) => [l.id, l]));
   const q = semAcento(S.q).trim();
