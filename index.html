@@ -161,6 +161,12 @@
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   .tl { max-height:220px; overflow:auto; font-size:13px; border-top:1px solid var(--line); padding-top:8px; }
+  .etps { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .etp { background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:7px 10px; display:flex; flex-direction:column; gap:1px; }
+  .etp small { color:var(--muted); font-size:11px; } .etp b { font-size:12.5px; font-weight:600; } .etp .pulou { font-size:12px; color:var(--muted); font-style:italic; }
+  .etp.ganha { background:#e4f6ec; border-color:#9fd8b7; } .etp.perdida { background:#fdeaec; border-color:#f0b5ba; }
+  details.mais summary { cursor:pointer; color:var(--muted); font-size:12.5px; margin-top:8px; user-select:none; } details.mais summary:hover { color:var(--text); }
+  details.mais .tl { margin-top:6px; }
   .tl div { padding:3px 0; color:var(--muted); } .tl b { color:var(--text); font-weight:500; }
   .empty { color:var(--muted); padding:8px 0; }
   /* Fundo do login: poucos brilhos suaves (azul, violeta, verde-água) e uma malha de pontos quase invisível. */
@@ -732,6 +738,18 @@ async function abrirLead(id) {
         (env.respostas || []).map((qa) => h('div', { class: 'qa' }, h('small', {}, qa.pergunta), h('div', {}, qa.resposta)))))
     : h('div', { class: 'empty' }, 'Sem respostas guardadas (lead criado à mão ou antes desse recurso).');
 
+  // --- anotações e histórico mais limpos
+  const notasEscritas = notas.filter((a) => a.tipo === 'nota'), eventosAuto = notas.filter((a) => a.tipo !== 'nota');
+  const rotuloMarco = (e) => ROTULO[e] || (e === 'quente' ? 'Ficou quente' : e);
+  // uma data por etapa: a 1ª vez que o lead entrou nela (ou "passou direto"), na ordem do funil
+  const resumoItens = ETAPAS.map(([e, nomeEtapa]) => {
+    const regs = hist.filter((x) => x.etapa === e); if (!regs.length) return null;
+    const real = regs.find((x) => !x.pulada);
+    return h('div', { class: 'etp' }, h('small', {}, nomeEtapa), real ? h('b', {}, fmtDT(real.entrou_em)) : h('span', { class: 'pulou' }, 'passou direto'));
+  }).filter(Boolean);
+  if (lead.situacao !== 'andamento' && lead.fechado_em) resumoItens.push(h('div', { class: 'etp ' + (lead.situacao === 'ganha' ? 'ganha' : 'perdida') }, h('small', {}, lead.situacao === 'ganha' ? 'Negociação ganha' : 'Negociação perdida'), h('b', {}, fmtDT(lead.fechado_em))));
+  const resumoQtd = resumoItens.length;
+  const resumoEtapas = resumoItens.length ? h('div', { class: 'etps' }, ...resumoItens) : h('div', { class: 'empty' }, 'Sem datas registradas.');
   const encerrarCard = async (situacao) => { await guardar(); closeDialog(); await encerrar({ ...lead, nome: nome.value, valor_venda: Number(valor.value) || 0 }, situacao); };
 
   dlg.onclose = () => { if (!dlg.open) recarregar(); };
@@ -771,7 +789,11 @@ async function abrirLead(id) {
             if (!nota.value.trim()) return;
             await acao(() => run(sb.from('anotacoes').insert({ lead_id: id, tipo: 'nota', texto: nota.value.trim().slice(0, 5000) })))();
           } }, 'Adicionar anotação')),
-          h('div', { class: 'tl' }, notas.map((a) => h('div', {}, fmtDT(a.criado_em), ' — ', h('b', {}, a.texto)))))),
+          notasEscritas.length
+            ? h('div', { class: 'tl' }, notasEscritas.map((a) => h('div', {}, fmtDT(a.criado_em), ' — ', h('b', {}, a.texto))))
+            : h('div', { class: 'empty' }, 'Nenhuma anotação ainda.'),
+          eventosAuto.length ? h('details', { class: 'mais' }, h('summary', {}, 'Registro automático (' + eventosAuto.length + ')'),
+            h('div', { class: 'tl' }, eventosAuto.map((a) => h('div', {}, fmtDT(a.criado_em), ' — ', a.texto)))) : null)),
       h('div', { class: 'col2' },
         secao('Perfil do formulário',
           lead.temperatura ? h('div', { class: 'chips' }, h('span', { class: 'tag ' + TEMP[lead.temperatura][1] }, TEMP[lead.temperatura][0] + (lead.faturamento ? ' • ' + lead.faturamento : ''))) : null,
@@ -789,8 +811,9 @@ async function abrirLead(id) {
             h('button', { class: 'btn', type: 'button', onclick: agendar }, 'Agendar reunião'),
             lead.etapa === 'agendada' ? h('button', { class: 'btn ok', type: 'button', onclick: acao(() => run(sb.from('leads').update({ etapa: 'realizada' }).eq('id', id), 'Não foi possível atualizar.')) }, 'Marcar como realizada') : null,
             lead.etapa === 'realizada' ? h('button', { class: 'btn ok', type: 'button', onclick: acao(() => run(sb.from('leads').update({ etapa: 'proposta' }).eq('id', id), 'Não foi possível atualizar.')) }, 'Marcar proposta enviada') : null)),
-        secao('Datas das etapas', h('div', { class: 'tl', style: 'max-height:none;border:0;padding:0' },
-          hist.map((e) => h('div', {}, fmtDT(e.entrou_em), ' — ', h('b', {}, ROTULO[e.etapa]), e.pulada ? ' (passou direto)' : '')))))),
+        secao('Datas das etapas', resumoEtapas,
+          hist.length > resumoQtd ? h('details', { class: 'mais' }, h('summary', {}, 'Ver todos os movimentos (' + hist.length + ')'),
+            h('div', { class: 'tl' }, hist.map((e) => h('div', {}, fmtDT(e.entrou_em), ' — ', h('b', {}, rotuloMarco(e.etapa)), e.pulada ? ' (passou direto)' : '')))) : null))),
     h('div', { class: 'cardfoot' },
       ehGestor() ? h('button', { class: 'btn bad sm', type: 'button', onclick: async () => {
         if (!confirm('Excluir este lead e todo o histórico? Não dá para desfazer.')) return;
