@@ -624,6 +624,12 @@ async function abrirLead(id) {
   const nome = h('input', { value: lead.nome, maxlength: 200 });
   const tel = h('input', { value: lead.telefone, inputmode: 'tel', maxlength: 20 });
   const mail = h('input', { value: lead.email, type: 'email', maxlength: 254 });
+  const site = h('input', { value: lead.site || '', placeholder: 'www.empresa.com.br', maxlength: 300 });
+  const insta = h('input', { value: lead.instagram || '', placeholder: '@perfil', maxlength: 300 });
+  // links seguros: só abre endereços http/https
+  const linkSite = (v) => { v = (v || '').trim(); if (!v) return ''; if (!/^https?:\/\//i.test(v)) v = 'https://' + v; return /^https?:\/\/[^\s]+$/i.test(v) ? v : ''; };
+  const linkInsta = (v) => { v = (v || '').trim(); if (!v) return ''; if (/instagram\.com/i.test(v)) return linkSite(v);
+    const u = v.replace(/^@/, '').replace(/\/+$/, ''); return /^[\w.]{1,30}$/.test(u) ? 'https://www.instagram.com/' + u + '/' : ''; };
   const valor = h('input', { type: 'number', step: '0.01', min: '0', value: lead.valor_venda || '' });
   const obs = h('textarea', { maxlength: 5000 }, lead.observacao || '');
   const estagio = h('select', {}, ...ETAPAS.map(([e, n]) => h('option', { value: e, selected: e === lead.etapa }, n)));
@@ -655,7 +661,9 @@ async function abrirLead(id) {
     const novo = {
       nome: nome.value.trim().slice(0, 200) || 'Sem nome', telefone: tel.value.slice(0, 20), email: mail.value.trim().slice(0, 254),
       valor_venda: Number(valor.value) || 0, observacao: obs.value.slice(0, 5000),
-    }, antes = { nome: lead.nome, telefone: lead.telefone, email: lead.email, valor_venda: Number(lead.valor_venda) || 0, observacao: lead.observacao || '' };
+      site: site.value.trim().slice(0, 300), instagram: insta.value.trim().slice(0, 300),
+    }, antes = { nome: lead.nome, telefone: lead.telefone, email: lead.email, valor_venda: Number(lead.valor_venda) || 0, observacao: lead.observacao || '',
+      site: lead.site || '', instagram: lead.instagram || '' };
     const upd = {};
     for (const k of Object.keys(novo)) if (novo[k] !== antes[k]) upd[k] = novo[k];
     Object.assign(upd, camposNovos());
@@ -786,6 +794,8 @@ async function abrirLead(id) {
           campo('Nome', nome),
           campo('Telefone', h('div', { class: 'linha' }, tel, lead.telefone ? h('a', { class: 'btn sm ghost', href: waLink(lead.telefone), target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no WhatsApp' }, 'WhatsApp') : null)),
           campo('E-mail', mail),
+          campo('Site', h('div', { class: 'linha' }, site, linkSite(lead.site) ? h('a', { class: 'btn sm ghost', href: linkSite(lead.site), target: '_blank', rel: 'noopener noreferrer', title: 'Abrir o site' }, 'Abrir') : null)),
+          campo('Instagram', h('div', { class: 'linha' }, insta, linkInsta(lead.instagram) ? h('a', { class: 'btn sm ghost', href: linkInsta(lead.instagram), target: '_blank', rel: 'noopener noreferrer', title: 'Abrir o Instagram' }, 'Abrir') : null)),
           h('label', {}, 'Tags', chips),
           campo('Observação', obs)),
         secao('Outros contatos desta negociação',
